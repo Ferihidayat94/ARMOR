@@ -1,0 +1,54 @@
+services:
+  web:
+    image: hidayat24/armor:v2.0
+    container_name: armor_web
+    restart: always
+    environment:
+      SECRET_KEY: armor-production-secret-key-2026-pln-nps-sumatera-sangat-panjang
+      DEBUG: "False"
+      ALLOWED_HOSTS: armorpltubangka.tech,www.armorpltubangka.tech,72.62.121.236,localhost,127.0.0.1
+      POSTGRES_DB: db_armor
+      POSTGRES_USER: armor_user
+      POSTGRES_PASSWORD: Armor123!
+      DB_HOST: armor_db
+      DB_PORT: "5432"
+      GROQ_API_KEY: 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
+      TELEGRAM_BOT_TOKEN: "8507107791:AAFd8BKfsMGZCzS7UctwNlWRiPipe45TkGE"
+      TELEGRAM_CHAT_ID: "-1003701349665"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - vector_data:/app/chroma_db
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - db
+    networks:
+      - armor_network
+
+  db:
+    image: postgres:15
+    container_name: armor_db
+    restart: always
+    environment:
+      POSTGRES_DB: db_armor
+      POSTGRES_USER: armor_user
+      POSTGRES_PASSWORD: Armor123!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - armor_network
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+  vector_data:
+
+networks:
+  armor_network:
+    driver: bridge

@@ -1,0 +1,183 @@
+from django.db import models
+from django.utils import timezone
+
+# ==========================================
+# 1. TABEL PERSONEL (Data Karyawan & Regu)
+# ==========================================
+class Personel(models.Model):
+    REGU_CHOICES = [
+        ('A', 'Regu A'),
+        ('B', 'Regu B'),
+        ('C', 'Regu C'),
+        ('D', 'Regu D'),
+        ('Non-Shift', 'Non-Shift'),
+    ]
+    
+    nama = models.CharField(max_length=100)
+    jabatan = models.CharField(max_length=100, blank=True, null=True)
+    regu = models.CharField(max_length=15, choices=REGU_CHOICES, default='Non-Shift')
+
+    def __str__(self):
+        return f"{self.nama} ({self.regu})"
+
+# ==========================================
+# 2. TABEL ABSENSI (Pencatatan Kehadiran)
+# ==========================================
+class Absensi(models.Model):
+    STATUS_CHOICES = [
+        ('Hadir', 'Hadir'),
+        ('Izin', 'Izin'),
+        ('Sakit', 'Sakit'),
+        ('Cuti', 'Cuti'),
+    ]
+    SHIFT_CHOICES = [
+        ('Pagi', 'Pagi'),
+        ('Sore', 'Sore'),
+        ('Malam', 'Malam'),
+        ('Non-Shift', 'Non-Shift'),
+    ]
+
+    personel = models.ForeignKey(Personel, on_delete=models.CASCADE)
+    tanggal = models.DateField(default=timezone.now)
+    shift = models.CharField(max_length=10, choices=SHIFT_CHOICES)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Hadir')
+    keterangan = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.personel.nama} - {self.tanggal} ({self.status})"
+
+# ==========================================
+# 3. TABEL PEKERJAAN (Data SR, FLM, CM, PM)
+# ==========================================
+class Pekerjaan(models.Model):
+    JENIS_CHOICES = [
+        ('FLM', 'First Line Maintenance (FLM)'),
+        ('CM', 'Corrective Maintenance (CM)'),
+        ('PM', 'Preventive Maintenance (PM)'),
+    ]
+    
+    AREA_CHOICES = [
+        ('Boiler', 'Boiler'),
+        ('Turbine', 'Turbine'),
+        ('Coal Handling', 'Coal Handling'),
+        ('Ash Handling', 'Ash Handling'),
+        ('WTP', 'Water Treatment Plant (WTP)'),
+        ('Elektrikal', 'Elektrikal'),
+        ('Lainnya', 'Lainnya'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('Open', 'Open / Belum Dikerjakan'),
+        ('Progress', 'On Progress'),
+        ('Finish', 'Selesai'),
+    ]
+
+    # Info Laporan
+    judul_pekerjaan = models.CharField(max_length=200)
+    jenis_pekerjaan = models.CharField(max_length=50, default='First Line Maintenance ( A )')
+    area = models.CharField(max_length=30)
+    deskripsi = models.TextField()
+    
+    # Waktu
+    waktu_lapor = models.DateTimeField(default=timezone.now)
+    waktu_selesai = models.DateTimeField(blank=True, null=True)
+    
+    # Status & Eksekutor
+    status = models.CharField(max_length=20, default='Open')
+    
+    # Siapa yang mengerjakan? (Ini kunci untuk menghitung Scoreboard Personel/Regu)
+    # Gunakan blank=True, null=True karena saat status "Open", belum tentu ada yang mengerjakan
+    eksekutor = models.ForeignKey(Personel, on_delete=models.SET_NULL, blank=True, null=True, related_name='pekerjaan_diselesaikan')
+    
+    # Foto Evidence (Jika ingin ada fitur upload foto sebelum/sesudah)
+    foto_evidence = models.ImageField(
+        upload_to='evidence_pekerjaan/',
+    	max_length=1000,
+    	blank=True,
+    	null=True
+	)
+
+    # Foto Evidence SESUDAH pekerjaan selesai
+    foto_evidence_after = models.ImageField(
+        upload_to='evidence_pekerjaan/',
+        max_length=1000,
+        blank=True,
+        null=True
+        )
+
+    # Nama peralatan & nomor SR (untuk form input pekerjaan)
+    nama_peralatan = models.CharField(max_length=200, blank=True, default='')
+    nomor_sr = models.CharField(max_length=50, blank=True, default='')
+    
+    # Nama pelaksana (string original, mungkin multiple nama dipisah koma)
+    nama_pelaksana = models.CharField(max_length=300, blank=True, default='')
+    
+    # M2M: semua personel yang ikut mengerjakan (untuk leaderboard fair)
+    eksekutor_list = models.ManyToManyField(
+        Personel, blank=True, related_name='pekerjaan_diikuti'
+    )
+    
+    def __str__(self):
+        return f"[{self.jenis_pekerjaan}] {self.judul_pekerjaan} - {self.status}"
+
+
+# ==================== MODEL PTW (Permit To Work) ====================
+class Ptw(models.Model):
+    STATUS_CHOICES = [
+        ('Open', 'Open'),
+        ('Finish', 'Finish'),
+    ]
+    
+    nomor_ptw = models.CharField(max_length=100)
+    no_wo = models.CharField(max_length=100, blank=True, default='')
+    tanggal_terbit = models.DateField(default=timezone.now)
+    nama_pekerjaan = models.TextField(blank=True, default='')
+    area = models.CharField(max_length=100, blank=True, default='')
+    peralatan = models.CharField(max_length=200, blank=True, default='')
+    pelaksana = models.CharField(max_length=300, blank=True, default='')
+    checklist = models.JSONField(default=list, blank=True)
+    keterangan = models.TextField(blank=True, default='')
+    bukti_isolasi = models.ImageField(
+        upload_to='ptw/', max_length=1000, blank=True, null=True
+    )
+    bukti_release = models.ImageField(
+        upload_to='ptw/', max_length=1000, blank=True, null=True
+    )
+    status = models.CharField(max_length=20, default='Open')
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        db_table = 'core_ptw'
+        ordering = ['-tanggal_terbit', '-id']
+    
+    def __str__(self):
+        return f"PTW {self.nomor_ptw} - {self.status}"
+# ==========================================
+# 6. TABEL RTPM
+# ==========================================
+
+class RTPM(models.Model):
+    STATUS_CHOICES = [
+        ('Open', 'Open'),
+        ('Done', 'Done'),
+        ('Overdue', 'Overdue'),
+    ]
+
+    equipment = models.CharField(max_length=200)
+    deskripsi = models.TextField()
+    area = models.CharField(max_length=100)
+    tanggal = models.DateField()
+    minggu_ke = models.IntegerField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Open')
+    pelaksana = models.CharField(max_length=100, blank=True, null=True)
+    catatan = models.TextField(blank=True, null=True)
+
+    # TAMBAHAN FOTO
+    evidence = models.ImageField(
+        upload_to='rtpm/',
+        blank=True,
+        null=True
+    )
+
+    def __str__(self):
+        return f"{self.equipment} - {self.tanggal}"

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Knowledge Search</title>
+</head>
+<body>
+
+<h2>Knowledge Maintenance Center</h2>
+
+<form method="GET">
+    <input type="text" name="q" value="{{ query }}">
+    <button type="submit">Cari</button>
+</form>
+
+<hr>
+
+{% if results %}
+    <ul>
+    {% for doc in results %}
+        <li>
+            <b>{{ doc.title }}</b>
+            {% if doc.file %}
+                - <a href="{{ doc.file.url }}" target="_blank">Download</a>
+            {% endif %}
+        </li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>Tidak ada dokumen.</p>
+{% endif %}
+
+</body>
+</html>
+

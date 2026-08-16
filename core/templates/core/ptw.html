@@ -1,0 +1,331 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>ARMOR - Permit To Work</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background: #f4f7f9; font-family: 'Segoe UI', sans-serif; }
+        .ptw-header {
+            background: linear-gradient(135deg, #0059A3 0%, #004075 100%);
+            color: white; padding: 30px 0; border-bottom: 5px solid #FFD100; margin-bottom: 30px;
+        }
+        .ptw-card {
+            background: white; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); 
+            padding: 25px; margin-bottom: 30px;
+        }
+        .filter-section { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .btn-ptw { background: #0059A3; color: white; font-weight: bold; border-radius: 8px; padding: 10px 24px; transition: 0.3s; }
+        .btn-ptw:hover { background: #FFD100; color: #004075; }
+        .btn-outline-ptw { border: 1px solid #0059A3; color: #0059A3; font-weight: bold; border-radius: 8px; }
+        .btn-outline-ptw:hover { background: #0059A3; color: white; }
+        
+        /* ===== PERBAIKAN TABEL ===== */
+        .table {
+            table-layout: fixed;
+            width: 100%;
+            word-wrap: break-word;
+        }
+        .table th:nth-child(1) { width: 7%; }  /* No PTW */
+        .table th:nth-child(2) { width: 7%; }  /* No WO */
+        .table th:nth-child(3) { width: 7%; }  /* Tanggal */
+        .table th:nth-child(4) { width: 12%; } /* Pekerjaan */
+        .table th:nth-child(5) { width: 10%; } /* Area / Peralatan */
+        .table th:nth-child(6) { width: 8%; }  /* Pelaksana */
+        .table th:nth-child(7) { width: 12%; } /* Checklist */
+        .table th:nth-child(8) { width: 7%; }  /* Bukti Isolasi */
+        .table th:nth-child(9) { width: 6%; }  /* Status */
+        .table th:nth-child(10) { width: 12%; } /* Aksi */
+        
+        .table td {
+            white-space: normal;
+            word-break: break-word;
+            vertical-align: middle;
+        }
+        .table td .badge {
+            display: inline-block;
+            margin: 2px;
+            white-space: nowrap;
+        }
+        .table thead { background: #eef6ff; color: #0059A3; font-weight: bold; }
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        /* ===== END PERBAIKAN ===== */
+    </style>
+</head>
+<body>
+
+<div class="ptw-header">
+    <div class="container d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="fw-bold m-0"><i class="bi bi-shield-lock me-2"></i>PERMIT TO WORK</h2>
+            <p class="m-0 opacity-75">Manajemen Izin Kerja</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/dashboard/" class="btn btn-light">
+                <i class="bi bi-speedometer2 me-2"></i>Dashboard
+            </a>
+            <div class="dropdown">
+                <button class="btn btn-light dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-download me-2"></i>Unduh Laporan
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="{% url 'ptw_export_excel' %}">Export Excel</a></li>
+                    <li><a class="dropdown-item" href="{% url 'ptw_export_pdf' %}">Export PDF</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container pb-5">
+    <!-- Tombol buat PTW -->
+    <div class="d-flex justify-content-end mb-4">
+        <button class="btn btn-ptw" data-bs-toggle="modal" data-bs-target="#ptwModal">
+            <i class="bi bi-plus-circle me-2"></i>Buat PTW Baru
+        </button>
+    </div>
+
+    <!-- Modal Input PTW -->
+    <div class="modal fade" id="ptwModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content" style="border-radius: 15px;">
+                <div class="modal-header" style="background: #0059A3; color: white; border-radius: 15px 15px 0 0;">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Form Permit To Work</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST" action="{% url 'ptw_tambah' %}" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Nomor PTW</label>
+                                <input type="text" name="nomor_ptw" class="form-control" placeholder="PTW-XXXX" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">No WO (Work Order)</label>
+                                <input type="text" name="no_wo" class="form-control" placeholder="Contoh: WO-2026-001" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Tanggal Terbit</label>
+                                <input type="date" name="tanggal_terbit" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Nama Pekerjaan</label>
+                                <input type="text" name="nama_pekerjaan" class="form-control" placeholder="Contoh: Perbaikan BFP Pump" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Area</label>
+                                <select name="area" class="form-select">
+                                    <option value="Boiler">Boiler</option>
+                                    <option value="Turbine">Turbine</option>
+                                    <option value="CHCB">CHCB</option>
+                                    <option value="WTP">WTP</option>
+                                    <option value="Common">Common</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Peralatan</label>
+                                <input type="text" name="peralatan" class="form-control" placeholder="Contoh: BFP Pump A" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Pelaksana</label>
+                                <input type="text" name="pelaksana" class="form-control" placeholder="Nama personel" required>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Safety Checklist</label>
+                                <div class="border p-3 rounded">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="checklist[]" value="LOTO" id="check1">
+                                        <label class="form-check-label" for="check1">Lock Out Tag Out (LOTO) terpasang</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="checklist[]" value="APD" id="check2">
+                                        <label class="form-check-label" for="check2">APD lengkap (helm, sepatu, sarung tangan)</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="checklist[]" value="Gas Test" id="check3">
+                                        <label class="form-check-label" for="check3">Gas test</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="checklist[]" value="Isolasi" id="check4">
+                                        <label class="form-check-label" for="check4">Isolasi energi (listrik/mekanik)</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="checklist[]" value="Komunikasi" id="check5">
+                                        <label class="form-check-label" for="check5">Briefing tim dilakukan</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Keterangan / Instruksi Khusus</label>
+                                <textarea name="keterangan" class="form-control" rows="3"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Bukti Isolasi (foto LOTO/tag out)</label>
+                                <input type="file" name="bukti_isolasi" class="form-control" accept="image/*">
+                                <small class="text-muted">Upload foto bukti pemasangan isolasi/LOTO</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Status</label>
+                                <select name="status" class="form-select">
+                                    <option value="Open">Open</option>
+                                    <option value="Closed">Closed</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-ptw">Simpan PTW</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <form method="GET" action="{% url 'ptw_list' %}" class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Status</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">Semua Status</option>
+                    <option value="Open" {% if status_filter == 'Open' %}selected{% endif %}>Open</option>
+                    <option value="Closed" {% if status_filter == 'Closed' %}selected{% endif %}>Closed</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Area</label>
+                <select name="area" class="form-select form-select-sm">
+                    <option value="">Semua Area</option>
+                    <option value="Boiler" {% if area_filter == 'Boiler' %}selected{% endif %}>Boiler</option>
+                    <option value="Turbine" {% if area_filter == 'Turbine' %}selected{% endif %}>Turbine</option>
+                    <option value="CHCB" {% if area_filter == 'CHCB' %}selected{% endif %}>CHCB</option>
+                    <option value="WTP" {% if area_filter == 'WTP' %}selected{% endif %}>WTP</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Dari Tanggal</label>
+                <input type="date" name="start_date" class="form-control form-control-sm" value="{{ start_date }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Sampai Tanggal</label>
+                <input type="date" name="end_date" class="form-control form-control-sm" value="{{ end_date }}">
+            </div>
+            <div class="col-md-4 text-end">
+                <button type="submit" class="btn btn-sm btn-dark px-3"><i class="bi bi-search"></i> Filter</button>
+                <a href="{% url 'ptw_list' %}" class="btn btn-sm btn-light">Reset</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabel PTW -->
+    <div class="ptw-card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>No PTW</th>
+                        <th>No WO</th>
+                        <th>Tanggal</th>
+                        <th>Pekerjaan</th>
+                        <th>Peralatan</th>
+                        <th>Pelaksana</th>
+                        <th>Checklist</th>
+                        <th>Gambar</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ptw in daftar_ptw %}
+                    <tr>
+                        <td class="fw-bold">{{ ptw.nomor_ptw }}</td>
+                        <td>{{ ptw.no_wo|default:"-" }}</td>
+                        <td>{{ ptw.tanggal_display }}</td>
+                        <td>{{ ptw.nama_pekerjaan }}</td>
+                        <td>{{ ptw.area }} / {{ ptw.peralatan }}</td>
+                        <td>{{ ptw.pelaksana }}</td>
+                        <td>
+                            {% if ptw.checklist %}
+                                {% for item in ptw.checklist %}
+                                    <span class="badge bg-success">{{ item }}</span>
+                                {% endfor %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ptw.bukti_isolasi %}
+                                <a href="{{ ptw.bukti_isolasi }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-image"></i></a>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ptw.status == 'Open' %}
+                                <span class="badge bg-warning text-dark">Open</span>
+                            {% else %}
+                                <span class="badge bg-success">Closed</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ptw.status == 'Open' %}
+                                <!-- Tombol Selesai yang memicu modal -->
+                                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#selesaiModal{{ ptw.id }}">
+                                    <i class="bi bi-check-circle"></i> Selesai
+                                </button>
+
+                                <!-- Modal Upload Bukti Release -->
+                                <div class="modal fade" id="selesaiModal{{ ptw.id }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content" style="border-radius: 15px;">
+                                            <div class="modal-header bg-success text-white">
+                                                <h5 class="modal-title"><i class="bi bi-cloud-upload me-2"></i>Selesaikan PTW</h5>
+                                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form method="POST" action="{% url 'ptw_selesai' ptw.id %}" enctype="multipart/form-data">
+                                                {% csrf_token %}
+                                                <div class="modal-body">
+                                                    <p class="text-muted">Upload bukti bahwa pekerjaan telah selesai dan area aman.</p>
+                                                    <div class="mb-3">
+                                                        <label class="form-label fw-bold">Bukti Release (foto)</label>
+                                                        <input type="file" name="bukti_release" class="form-control" accept="image/*" required>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                                                    <button type="submit" class="btn btn-success">Simpan</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                            <form method="POST" action="{% url 'ptw_hapus' ptw.id %}" style="display: inline;" onsubmit="return confirm('Hapus PTW ini?')">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-danger">
+                                    <i class="bi bi-trash"></i> Hapus
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-4">Belum ada data PTW.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

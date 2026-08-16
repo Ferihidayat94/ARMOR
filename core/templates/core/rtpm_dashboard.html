@@ -1,0 +1,357 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>ARMOR - RTPM Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background: #f4f7f9; font-family: 'Segoe UI', sans-serif; }
+        .header-rtpm { background: linear-gradient(135deg, #0059A3 0%, #004075 100%); color: white; padding: 30px 0; border-bottom: 5px solid #FFD100; margin-bottom: 30px; }
+        .card-stat { border-radius: 15px; border: none; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .table-rtpm { background: white; border-radius: 15px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .badge-pending { background: #ffc107; color: #000; }
+        .badge-done { background: #28a745; color: #fff; }
+        .badge-overdue { background: #dc3545; color: #fff; }
+        .btn-rtpm { background: #0059A3; color: white; font-weight: bold; border-radius: 8px; }
+        .btn-rtpm:hover { background: #FFD100; color: #004075; }
+    </style>
+</head>
+<body>
+
+<div class="header-rtpm">
+    <div class="container d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="fw-bold m-0"><i class="bi bi-gear-wide-connected me-2"></i>RTPM SYSTEM</h2>
+            <p class="m-0 opacity-75">Running Test & Preventive Maintenance / Change Over</p>
+        </div>
+        <div>
+            <a href="/dashboard/" class="btn btn-light me-2"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <a href="{% url 'rtpm_export_excel' %}?bulan={{ bulan }}&tahun={{ tahun }}&status={{ status_filter }}&start_date={{ start_filter }}&end_date={{ end_filter }}&activity={{ activity_filter }}" class="btn btn-success me-2"><i class="bi bi-download"></i> Export Excel</a>
+            <a href="{% url 'rtpm_export_pdf' %}?bulan={{ bulan }}&tahun={{ tahun }}&status={{ status_filter }}&start_date={{ start_filter }}&end_date={{ end_filter }}&activity={{ activity_filter }}" class="btn btn-danger"><i class="bi bi-file-earmark-pdf"></i> Export PDF</a>
+        </div>
+    </div>
+</div>
+
+<div class="container pb-5">
+    <!-- Statistik -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card card-stat p-3 text-center">
+                <h6>Total Jadwal</h6>
+                <h2>{{ total }}</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-stat p-3 text-center bg-success text-white">
+                <h6>Selesai</h6>
+                <h2>{{ done }}</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-stat p-3 text-center bg-warning">
+                <h6>Pending</h6>
+                <h2>{{ pending }}</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-stat p-3 text-center bg-danger text-white">
+                <h6>Terlambat</h6>
+                <h2>{{ overdue }}</h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter & Tombol Tambah -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <form method="GET" class="d-flex gap-2">
+            <select name="activity" class="form-select" style="width: auto;">
+                <option value="">Semua Aktivitas</option>
+                <option value="Running Test" {% if activity_filter == 'Running Test' %}selected{% endif %}>Running Test</option>
+                <option value="Change Over" {% if activity_filter == 'Change Over' %}selected{% endif %}>Change Over</option>
+            </select>
+            <select name="status" class="form-select" style="width: auto;">
+                <option value="">Semua Status</option>
+                <option value="Open" {% if status_filter == 'Open' %}selected{% endif %}>📋 Belum Selesai</option>
+                <option value="Done" {% if status_filter == 'Done' %}selected{% endif %}>✅ Selesai</option>
+                <option value="Overdue" {% if status_filter == 'Overdue' %}selected{% endif %}>⚠️ Overdue</option>
+            </select>
+            <input type="date" name="start_date" value="{{ start_filter }}" class="form-control" style="width: auto;" title="Tanggal mulai">
+            <span class="align-self-center">—</span>
+            <input type="date" name="end_date" value="{{ end_filter }}" class="form-control" style="width: auto;" title="Tanggal akhir">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a href="{% url 'rtpm_dashboard' %}" class="btn btn-secondary">Reset</a>
+        </form>
+        <button class="btn btn-rtpm" data-bs-toggle="modal" data-bs-target="#tambahJadwalModal">
+            <i class="bi bi-plus-circle"></i> Tambah Jadwal
+        </button>
+    </div>
+
+    <!-- Tabel Jadwal -->
+    <div class="table-rtpm table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead style="background: #eef6ff; color: #0059A3;">
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Equipment</th>
+                    <th>Aktivitas</th>
+                    <th>Area</th>
+                    <th>Minggu</th>
+                    <th>Status</th>
+                    <th>Pelaksanaan</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for j in jadwal_list %}
+                <tr>
+    <td>{{ j.tanggal }}</td>
+    <td>{{ j.equipment }}</td>
+    <td>{{ j.deskripsi }}</td>
+    <td>{{ j.area|default:"-" }}</td>
+    <td>{{ j.minggu_ke|default:"-" }}</td>
+
+    <td>
+        {% if j.status == 'Done' %}
+            <span class="badge badge-done">Selesai</span>
+        {% elif j.status == 'Overdue' %}
+            <span class="badge badge-overdue">Terlambat</span>
+        {% else %}
+            <span class="badge badge-pending">Pending</span>
+        {% endif %}
+    </td>
+
+    <td>
+        {% if j.pelaksana %}
+            {{ j.pelaksana }}
+        {% else %}
+            -
+        {% endif %}
+    </td>
+
+
+                    <td>
+    {% if j.status == 'Done' %}
+        {% with pelaksanaan=j.rtpm_pelaksanaan|first %}
+            {% if pelaksanaan %}
+                <small>
+                    {{ pelaksanaan.tanggal_pelaksanaan }}<br>
+                    oleh {{ pelaksanaan.pelaksana }}
+                </small>
+
+                {% if pelaksanaan.evidence_url %}
+                    <a href="{{ pelaksanaan.evidence_url }}"
+                       target="_blank"
+                       class="btn btn-sm btn-outline-primary ms-1">
+                        <i class="bi bi-image"></i>
+                    </a>
+                {% endif %}
+            {% endif %}
+        {% endwith %}
+    {% else %}
+        <button class="btn btn-sm btn-success"
+                data-bs-toggle="modal"
+                data-bs-target="#inputPelaksanaanModal{{ j.id }}">
+            <i class="bi bi-check-circle"></i> Input Hasil
+        </button>
+    {% endif %}
+</td>
+
+<td>
+    {% if j.status == 'Done' %}
+    <button class="btn btn-sm btn-warning"
+            data-bs-toggle="modal"
+            data-bs-target="#editPelaksanaanModal{{ j.id }}"
+            title="Edit pelaksanaan">
+        <i class="bi bi-pencil-square"></i>
+    </button>
+    {% if user.is_superuser %}
+    <form method="POST"
+          action="{% url 'rtpm_hapus_jadwal' j.id %}"
+          style="display:inline;"
+          onsubmit="return confirm('Hapus RTPM yang sudah Selesai? Tindakan ini tidak dapat dibatalkan.')">
+        {% csrf_token %}
+        <button type="submit"
+                class="btn btn-sm btn-danger"
+                title="Hapus RTPM (Admin only)">
+            <i class="bi bi-trash"></i>
+        </button>
+    </form>
+    {% endif %}
+    {% else %}
+    <form method="POST"
+          action="{% url 'rtpm_hapus_jadwal' j.id %}"
+          style="display:inline;"
+          onsubmit="return confirm('Hapus jadwal ini?')">
+
+        {% csrf_token %}
+
+        <button type="submit"
+                class="btn btn-sm btn-danger"
+                title="Hapus jadwal">
+            <i class="bi bi-trash"></i>
+        </button>
+
+    </form>
+    {% endif %}
+</td>
+                </tr>
+                <!-- Modal Input Pelaksanaan untuk setiap jadwal yang belum Done -->
+                {% if j.status != 'Done' %}
+                <div class="modal fade" id="inputPelaksanaanModal{{ j.id }}" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-success text-white">
+                                <h5 class="modal-title">Input Hasil RTPM</h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                            </div>
+                            <form method="POST" action="{% url 'rtpm_input_pelaksanaan' j.id %}" enctype="multipart/form-data">
+                                {% csrf_token %}
+                                <div class="modal-body">
+                                    <p><strong>Equipment:</strong> {{ j.equipment }}<br>
+                                    <strong>Aktivitas:</strong> {{ j.activity }}<br>
+                                    <strong>Jadwal:</strong> {{ j.tanggal }}</p>
+                                    <div class="mb-3">
+                                        <label class="form-label">Tanggal Pelaksanaan</label>
+                                        <input type="date" name="tanggal_pelaksanaan" class="form-control" value="{{ j.tanggal }}" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Nama Pelaksana</label>
+                                        <input type="text" name="pelaksana" class="form-control" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Catatan</label>
+                                        <textarea name="catatan" class="form-control" rows="2"></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Upload Bukti (Foto)</label>
+                                        <input type="file" name="evidence" class="form-control" accept="image/*" required>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                                    <button type="submit" class="btn btn-success">Simpan</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Modal Edit Pelaksanaan (hanya untuk status Done) -->
+                {% if j.status == 'Done' %}
+                <div class="modal fade" id="editPelaksanaanModal{{ j.id }}" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-warning text-dark">
+                                <h5 class="modal-title">✏️ Edit Pelaksanaan RTPM</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <form method="POST" action="{% url 'rtpm_edit_pelaksanaan' j.id %}" enctype="multipart/form-data">
+                                {% csrf_token %}
+                                <div class="modal-body">
+                                    <p><strong>Equipment:</strong> {{ j.equipment }}<br>
+                                    <strong>Aktivitas:</strong> {{ j.deskripsi }}<br>
+                                    <strong>Area:</strong> {{ j.area }}</p>
+                                    <div class="mb-3">
+                                        <label class="form-label">Tanggal Pelaksanaan</label>
+                                        <input type="date" name="tanggal_pelaksanaan" class="form-control" value="{{ j.tanggal|date:'Y-m-d' }}" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Nama Pelaksana</label>
+                                        <input type="text" name="pelaksana" class="form-control" value="{{ j.pelaksana|default:'' }}" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Catatan</label>
+                                        <textarea name="catatan" class="form-control" rows="2">{{ j.catatan|default:'' }}</textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Foto Bukti Saat Ini</label>
+                                        {% if j.evidence %}
+                                        <div><img src="{{ j.evidence.url }}" style="max-width:200px; max-height:150px; border-radius:6px;" alt="Foto evidence"></div>
+                                        {% else %}
+                                        <div class="text-muted small">Belum ada foto</div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Ganti Foto (opsional)</label>
+                                        <input type="file" name="evidence" class="form-control" accept="image/*">
+                                        <div class="form-text">Kosongkan kalau tidak ingin mengganti foto</div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                                    <button type="submit" class="btn btn-warning">💾 Simpan Perubahan</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% empty %}
+                <tr><td colspan="8" class="text-center py-4">Belum ada jadwal RTPM untuk bulan ini.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Tambah Jadwal -->
+<div class="modal fade" id="tambahJadwalModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #0059A3; color: white;">
+                <h5 class="modal-title">Tambah Jadwal RTPM</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{% url 'rtpm_tambah_jadwal' %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Equipment</label>
+                        <input type="text" name="equipment" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Aktivitas</label>
+                        <select name="activity" class="form-select" required>
+                            <option value="Running Test">Running Test</option>
+                            <option value="Change Over">Change Over</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Area</label>
+                        <input type="text" name="area" class="form-control" placeholder="Contoh: Boiler">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tanggal</label>
+                        <input type="date" name="tanggal" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Minggu ke</label>
+                        <select name="minggu_ke" class="form-select">
+                            <option value="">-</option>
+                            <option value="1">Minggu 1</option>
+                            <option value="2">Minggu 2</option>
+                            <option value="3">Minggu 3</option>
+                            <option value="4">Minggu 4</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Keterangan</label>
+                        <textarea name="keterangan" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-rtpm">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

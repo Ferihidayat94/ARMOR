@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git
+media/
+staticfiles/
+arsip/
+*.tar.gz
+*.zip
+INSTRUKSI\ KERJA\ PEMELIHARAAN.zip

@@ -1,0 +1,918 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>ARMOR - PLN NPS Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <style>
+        :root {
+            --pln-blue: #0059A3;
+            --pln-yellow: #FFD100;
+            --pln-bg: #f8f9fa;
+            --pln-dark: #004075;
+            --pln-light: #00AEEF;
+        }
+        body { background-color: var(--pln-bg); font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
+        .power-header { background: linear-gradient(135deg, var(--pln-blue) 0%, var(--pln-dark) 100%); color: white; padding: 30px 0; margin-bottom: 50px; border-bottom: 5px solid var(--pln-yellow); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .menu-link { text-decoration: none; color: inherit; }
+        .pln-card { background: white; border: none; border-radius: 15px; padding: 30px; position: relative; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border-bottom: 4px solid transparent; z-index: 1; }
+        .pln-card:hover { transform: translateY(-12px); background: var(--pln-blue); color: white !important; border-bottom: 4px solid var(--pln-yellow); box-shadow: 0 15px 30px rgba(0, 89, 163, 0.3); }
+        .pln-card .icon-circle { width: 70px; height: 70px; background: #eef6ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; transition: 0.3s; }
+        .pln-card .icon-circle img { width: 35px; height: 35px; object-fit: contain; transition: 0.3s; }
+        .pln-card .icon-circle i { font-size: 2rem; color: #0059A3; transition: 0.3s; }
+        .pln-card:hover .icon-circle { background: rgba(255, 255, 255, 0.2); transform: rotateY(360deg); }
+        .pln-card:hover .icon-circle i { color: white; }
+        .pln-card h3 { font-weight: 800; font-size: 1.4rem; margin-bottom: 10px; }
+        .pln-card p { font-size: 0.9rem; opacity: 0.8; margin: 0; }
+        .chart-card { background: white; border: none; border-radius: 15px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); height: 100%; }
+        .scoreboard-card { background: white; border: none; border-radius: 15px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); border-top: 6px solid var(--pln-blue); height: 100%; }
+        .score-list { max-height: 250px; overflow-y: auto; padding-right: 5px; }
+        .score-list::-webkit-scrollbar { width: 5px; }
+        .score-list::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .score-list::-webkit-scrollbar-thumb { background: #0059A3; border-radius: 10px; }
+        .score-list::-webkit-scrollbar-thumb:hover { background: #004075; }
+        .score-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #dee2e6; font-size: 0.95rem; }
+        .score-item:last-child { border-bottom: none; }
+        .score-badge { font-weight: bold; padding: 5px 12px; border-radius: 50px; }
+        .user-badge { background: rgba(255, 255, 255, 0.1); padding: 5px 15px; border-radius: 20px; border: 1px solid var(--pln-yellow); font-size: 0.8rem; }
+        .logout-btn { background: var(--pln-yellow); color: var(--pln-dark); border: none; font-weight: bold; transition: 0.3s; }
+        .logout-btn:hover { transform: scale(1.05); }
+        .header-logo { height: 60px; width: auto; margin-right: 20px; padding: 5px; border-radius: 8px; }
+        .toggle-btn { cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="power-header">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <img src="{% static 'images/logo_pln.png' %}" alt="Logo PLN NPS" class="header-logo">
+                    <div>
+                        <h1 class="display-6 fw-bold m-0 text-uppercase">ARMOR <span style="color: var(--pln-yellow);">SYSTEM</span></h1>
+                        <p class="m-0 small text-white text-uppercase" style="letter-spacing: 1px; font-weight: 500;">PLTU Bangka - Nusantara Power Services</p>
+                    </div>
+                </div>
+                <div class="text-end">
+                    <div class="user-badge mb-2">Connected: <strong>{{ user.username }}</strong> ⚡</div>
+                    <div class="d-flex gap-2 justify-content-end">
+<form action="/logout/" method="post" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn logout-btn btn-sm px-4 rounded-pill shadow-sm">Sign Out</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container pb-5">
+        <!-- Menu Cards -->
+        <div class="row g-4 justify-content-center mb-4">
+            <!-- INPUT JOB -->
+            <div class="col-md-5 col-lg-3">
+                <a href="/input-pekerjaan/" class="menu-link">
+                    <div class="pln-card shadow-sm text-center">
+                        <div class="icon-circle mx-auto"><img src="{% static 'images/icon_input.png' %}" alt="Input"></div>
+                        <h3>INPUT JOB</h3>
+                        <p>Pelaporan kerusakan alat (SR).</p>
+                    </div>
+                </a>
+            </div>
+            <!-- MONITORING -->
+            <div class="col-md-5 col-lg-3">
+                <a href="/daftar-pekerjaan/" class="menu-link">
+                    <div class="pln-card shadow-sm text-center">
+                        <div class="icon-circle mx-auto"><img src="{% static 'images/icon_monitor.png' %}" alt="Monitor"></div>
+                        <h3>MONITORING</h3>
+                        <p>Status pengerjaan.</p>
+                    </div>
+                </a>
+            </div>
+            <!-- RTPM -->
+            <div class="col-md-5 col-lg-3">
+                <a href="{% url 'rtpm_dashboard' %}" class="menu-link">
+                    <div class="pln-card shadow-sm text-center">
+                        <div class="icon-circle mx-auto"><i class="bi bi-calendar-check"></i></div>
+                        <h3>RTPM</h3>
+                        <p>Running Test & Change Over Peralatan.</p>
+                    </div>
+                </a>
+            </div>
+            <!-- PTW -->
+            <div class="col-md-5 col-lg-3">
+                <a href="/ptw/" class="menu-link">
+                    <div class="pln-card shadow-sm text-center">
+                        <div class="icon-circle mx-auto"><i class="bi bi-shield-lock"></i></div>
+                        <h3>PTW</h3>
+                        <p>Permit To Work – Izin Kerja Aman.</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+
+<!-- Filter -->
+<div class="row justify-content-center mb-5">
+    <div class="col-lg-10">
+
+        <div class="card p-3 shadow-sm border-0"
+             style="border-radius: 15px;">
+
+            <form method="GET"
+                  class="d-flex flex-wrap gap-3 align-items-center justify-content-center">
+
+                <span class="fw-bold text-muted small">
+                    Filter Data:
+                </span>
+
+                <!-- FILTER JENIS -->
+                <select name="filter_jenis"
+                        class="form-select form-select-sm"
+                        style="width:auto; border-radius:8px;">
+
+<option value="">Semua Jenis</option>
+
+<option value="First Line Maintenance"
+{% if filter_jenis == 'First Line Maintenance' %}selected{% endif %}>
+First Line Maintenance
+</option>
+
+<option value="Corrective Maintenance"
+{% if filter_jenis == 'Corrective Maintenance' %}selected{% endif %}>
+Service Request
+</option>
+
+<option value="Preventive Maintenance"
+{% if filter_jenis == 'Preventive Maintenance' %}selected{% endif %}>
+Preventive Maintenance
+</option>
+
+                </select>
+
+                <!-- FILTER REGU -->
+                <select name="filter_regu"
+                        class="form-select form-select-sm"
+                        style="width:auto; border-radius:8px;">
+
+                    <option value="">
+                        Semua Regu
+                    </option>
+
+                    <option value="A"
+                        {% if filter_regu == 'A' %}selected{% endif %}>
+                        Regu A
+                    </option>
+
+                    <option value="B"
+                        {% if filter_regu == 'B' %}selected{% endif %}>
+                        Regu B
+                    </option>
+
+                    <option value="C"
+                        {% if filter_regu == 'C' %}selected{% endif %}>
+                        Regu C
+                    </option>
+
+                    <option value="D"
+                        {% if filter_regu == 'D' %}selected{% endif %}>
+                        Regu D
+                    </option>
+
+                </select>
+
+                <!-- FILTER TANGGAL -->
+                <input type="date"
+                       name="start_date"
+                       class="form-control form-control-sm"
+                       style="width:auto; border-radius:8px;"
+                       value="{{ start_date }}">
+
+                <span class="text-muted">-</span>
+
+                <input type="date"
+                       name="end_date"
+                       class="form-control form-control-sm"
+                       style="width:auto; border-radius:8px;"
+                       value="{{ end_date }}">
+
+                <!-- BUTTON -->
+                <button type="submit"
+                        class="btn btn-sm text-white px-3"
+                        style="background-color: var(--pln-blue); border-radius:8px;">
+
+                    Tampilkan
+
+                </button>
+
+                <a href="/dashboard/"
+                   class="btn btn-sm btn-light"
+                   style="border-radius:8px;">
+
+                    Reset
+
+                </a>
+
+            </form>
+
+        </div>
+
+    </div>
+</div>
+
+        <!-- Baris Grafik Utama (Pie & Bar) -->
+        <div class="row g-4 justify-content-center mb-5">
+            <div class="col-md-5 col-lg-4">
+                <div class="chart-card text-center">
+                    <h5 class="fw-bold mb-4" style="color: var(--pln-blue);">Distribusi Berdasarkan Jenis</h5>
+                    <div style="height: 350px;"><canvas id="flmChart"></canvas></div>
+                </div>
+            </div>
+            <div class="col-md-7 col-lg-8">
+                <div class="chart-card text-center">
+                    <h5 class="fw-bold mb-4" style="color: var(--pln-blue);">Distribusi Pelaporan per Area</h5>
+                    <div style="height: 250px;"><canvas id="areaChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Grafik Tren Predictive (selalu tampil) -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="chart-card text-center">
+                    <h5 class="fw-bold mb-4" style="color: var(--pln-blue);">Grafik Maintenance Mix (1 Tahun Terakhir)</h5>
+                    <div style="height: 300px;">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toggle Buttons untuk Leaderboard & Tabel Predictive -->
+        <div class="d-flex justify-content-end gap-2 mt-4 mb-3">
+            <button class="btn btn-outline-primary btn-sm" type="button" id="toggleLeaderboard">
+                Tampilkan Leaderboard FLM
+            </button>
+            <button class="btn btn-outline-primary btn-sm" type="button" id="togglePredictive">
+                AI Assistance
+            </button>
+        </div>
+
+        <!-- Leaderboard FLM (hidden by default) -->
+        <div id="leaderboardContainer" class="d-none">
+            <div class="row mt-3">
+                <div class="col-12 text-center mb-4">
+                    <h4 class="fw-bold text-uppercase" style="color: var(--pln-blue);">🏆 Leaderboard Personel FLM</h4>
+                    <p class="text-muted small">Daftar Total Penyelesaian Pekerjaan (FLM) per Regu (berdasarkan jenis)</p>
+                </div>
+
+                <!-- Regu A -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="scoreboard-card" style="border-top-color: #0059A3;">
+                        <h5 class="fw-bold text-center mb-3" style="color: #0059A3;">REGU A</h5>
+                        <div class="score-list">
+                            {% for item in leaderboard.A %}
+                            <div class="score-item"><span class="fw-bold text-dark">{{ forloop.counter }}. {{ item.nama }}</span> <span class="badge score-badge" style="background: #0059A3;">{{ item.jumlah }} SR</span></div>
+                            {% empty %}
+                            <div class="text-muted text-center py-3">Belum ada data</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regu B -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="scoreboard-card" style="border-top-color: #FFD100;">
+                        <h5 class="fw-bold text-center mb-3" style="color: #d1ab00;">REGU B</h5>
+                        <div class="score-list">
+                            {% for item in leaderboard.B %}
+                            <div class="score-item"><span class="fw-bold text-dark">{{ forloop.counter }}. {{ item.nama }}</span> <span class="badge score-badge" style="background: #FFD100; color: #004075;">{{ item.jumlah }} SR</span></div>
+                            {% empty %}
+                            <div class="text-muted text-center py-3">Belum ada data</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regu C -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="scoreboard-card" style="border-top-color: #00AEEF;">
+                        <h5 class="fw-bold text-center mb-3" style="color: #00AEEF;">REGU C</h5>
+                        <div class="score-list">
+                            {% for item in leaderboard.C %}
+                            <div class="score-item"><span class="fw-bold text-dark">{{ forloop.counter }}. {{ item.nama }}</span> <span class="badge score-badge" style="background: #00AEEF;">{{ item.jumlah }} SR</span></div>
+                            {% empty %}
+                            <div class="text-muted text-center py-3">Belum ada data</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regu D -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="scoreboard-card" style="border-top-color: #1D6F42;">
+                        <h5 class="fw-bold text-center mb-3" style="color: #1D6F42;">REGU D</h5>
+                        <div class="score-list">
+                            {% for item in leaderboard.D %}
+                            <div class="score-item"><span class="fw-bold text-dark">{{ forloop.counter }}. {{ item.nama }}</span> <span class="badge score-badge" style="background: #1D6F42;">{{ item.jumlah }} SR</span></div>
+                            {% empty %}
+                            <div class="text-muted text-center py-3">Belum ada data</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+<!-- PANEL KNOWLEDGE BASE -->
+<style>
+.ai-section { background: linear-gradient(135deg, #0a0f2e 0%, #0d1b4b 50%, #0a2a6b 100%); border-radius: 20px; padding: 0; overflow: hidden; box-shadow: 0 20px 60px rgba(0,89,163,0.3); margin-top: 2rem; }
+.ai-header { padding: 28px 32px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
+.ai-badge { background: linear-gradient(135deg, #00d4ff, #0059A3); color: white; font-size: 0.7rem; font-weight: 700; padding: 4px 12px; border-radius: 20px; letter-spacing: 1px; text-transform: uppercase; }
+.ai-body { padding: 28px 32px; }
+.ai-select { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 12px; padding: 12px 16px; font-size: 0.9rem; backdrop-filter: blur(10px); }
+.ai-select:focus { background: rgba(255,255,255,0.12); border-color: #00d4ff; box-shadow: 0 0 0 3px rgba(0,212,255,0.15); color: white; outline: none; }
+.ai-select option { background: #0d1b4b; color: white; }
+.ai-btn { background: linear-gradient(135deg, #00d4ff, #0059A3); border: none; color: white; font-weight: 700; border-radius: 12px; padding: 12px 28px; letter-spacing: 0.5px; transition: all 0.3s; box-shadow: 0 4px 20px rgba(0,212,255,0.3); }
+.ai-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,212,255,0.5); color: white; }
+.ai-query-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 18px; margin-bottom: 24px; }
+.ai-result-card { border-radius: 16px; overflow: hidden; border: none; transition: transform 0.2s; }
+.ai-result-card:hover { transform: translateY(-3px); }
+.ai-card-cause { background: linear-gradient(135deg, #2d0a0a, #4a0f0f); border: 1px solid rgba(220,53,69,0.3); }
+.ai-card-steps { background: linear-gradient(135deg, #0a1a2d, #0d2a4a); border: 1px solid rgba(0,89,163,0.4); }
+.ai-card-safety { background: linear-gradient(135deg, #2d1a00, #4a2b00); border: 1px solid rgba(253,126,20,0.3); }
+.ai-card-header { padding: 14px 18px; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+.ai-card-cause .ai-card-header { background: rgba(220,53,69,0.15); color: #ff6b7a; border-bottom: 1px solid rgba(220,53,69,0.2); }
+.ai-card-steps .ai-card-header { background: rgba(0,212,255,0.1); color: #00d4ff; border-bottom: 1px solid rgba(0,212,255,0.2); }
+.ai-card-safety .ai-card-header { background: rgba(253,126,20,0.15); color: #ffab40; border-bottom: 1px solid rgba(253,126,20,0.2); }
+.ai-card-body { padding: 16px 18px; }
+.ai-list-item { color: rgba(255,255,255,0.85); font-size: 0.875rem; line-height: 1.6; margin-bottom: 10px; padding-left: 8px; }
+.ai-list-item::marker { color: rgba(255,255,255,0.4); }
+.similarity-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); margin-top: 6px; overflow: hidden; }
+.similarity-fill { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
+.case-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; margin-bottom: 10px; transition: all 0.2s; }
+.case-card:hover { background: rgba(255,255,255,0.08); border-color: rgba(0,212,255,0.3); }
+.ikp-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; margin-bottom: 10px; transition: all 0.2s; }
+.ikp-card:hover { background: rgba(255,255,255,0.08); border-color: rgba(0,255,136,0.3); }
+.badge-sim { font-size: 0.72rem; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+.badge-high { background: rgba(0,200,100,0.2); color: #00c864; border: 1px solid rgba(0,200,100,0.3); }
+.badge-med { background: rgba(255,193,7,0.2); color: #ffc107; border: 1px solid rgba(255,193,7,0.3); }
+.badge-low { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.15); }
+.status-pill { font-size: 0.68rem; padding: 2px 10px; border-radius: 20px; font-weight: 600; }
+.status-finish { background: rgba(0,200,100,0.15); color: #00c864; }
+.status-open { background: rgba(255,193,7,0.15); color: #ffc107; }
+.ai-divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 28px 0; }
+.ai-powered { color: rgba(255,255,255,0.35); font-size: 0.75rem; display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.ai-pulse { width: 8px; height: 8px; background: #00d4ff; border-radius: 50%; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
+.ai-loading-custom { text-align: center; padding: 40px 0; }
+.ai-spinner { width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.knowledge-section { background: linear-gradient(135deg, #0a0f2e 0%, #0d1b4b 60%, #0a2255 100%); border-radius: 20px; padding: 0; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); margin-top: 1.5rem; border: 1px solid rgba(255,209,0,0.15); }
+.kms-header { background: rgba(255,255,255,0.03); padding: 24px 32px; border-bottom: 2px solid rgba(255,209,0,0.2); position: relative; overflow: hidden; }
+.kms-header::before { content: ''; position: absolute; top: -50%; right: -10%; width: 200px; height: 200px; background: radial-gradient(circle, rgba(255,209,0,0.08) 0%, transparent 70%); pointer-events: none; }
+.kms-header::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #FFD100, transparent); }
+.kms-body { padding: 28px 32px; }
+.kms-search { background: rgba(255,255,255,0.07) !important; border: 1.5px solid rgba(255,209,0,0.25) !important; border-radius: 12px !important; padding: 13px 18px !important; font-size: 0.92rem; color: white !important; transition: all 0.3s; backdrop-filter: blur(10px); }
+.kms-search::placeholder { color: rgba(255,255,255,0.35) !important; }
+.kms-search:focus { border-color: #FFD100 !important; box-shadow: 0 0 0 3px rgba(255,209,0,0.15) !important; outline: none; background: rgba(255,255,255,0.1) !important; }
+.kms-search-btn { background: linear-gradient(135deg, #FFD100, #f0a500) !important; border: none !important; color: #004075 !important; font-weight: 700; border-radius: 0 12px 12px 0 !important; padding: 13px 24px !important; transition: all 0.3s; }
+.kms-search-btn:hover { transform: translateX(2px); box-shadow: 0 4px 20px rgba(255,209,0,0.4); }
+.kms-cat-card { border-radius: 16px; padding: 28px 20px; text-align: center; transition: all 0.3s; cursor: default; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
+.kms-cat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--cat-color, rgba(255,255,255,0.2)); }
+.kms-cat-card:hover { transform: translateY(-6px); background: rgba(255,255,255,0.09); border-color: var(--cat-color, rgba(255,255,255,0.2)); box-shadow: 0 16px 40px rgba(0,0,0,0.3); }
+.kms-cat-sop { --cat-color: #00AEEF; }
+.kms-cat-manual { --cat-color: #00c864; }
+.kms-cat-history { --cat-color: #FFD100; }
+.kms-cat-icon { font-size: 44px; margin-bottom: 14px; display: block; } .kms-cat-sop .kms-cat-icon { color: #00AEEF; } .kms-cat-manual .kms-cat-icon { color: #00c864; } .kms-cat-history .kms-cat-icon { color: #FFD100; }
+.kms-cat-title { font-weight: 700; color: white; font-size: 1rem; margin-bottom: 4px; }
+.kms-cat-desc { color: rgba(255,255,255,0.4); font-size: 0.78rem; margin-bottom: 0; }
+.kms-count-sop { font-size: 2.2rem; font-weight: 800; margin-top: 12px; color: #00AEEF; }
+.kms-count-manual { font-size: 2.2rem; font-weight: 800; margin-top: 12px; color: #00c864; }
+.kms-count-history { font-size: 2.2rem; font-weight: 800; margin-top: 12px; color: #FFD100; }
+</style>
+
+<div id="predictiveContainer" class="d-none">
+
+    <!-- ===== AI RECOMMENDATION ENGINE ===== -->
+    <div class="ai-section">
+        <div class="ai-header">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <span class="ai-badge"><i class="ti ti-cpu" style="font-size:13px;"></i> AI Powered</span>
+                        <span style="color:rgba(255,255,255,0.4); font-size:0.75rem;"><i class="ti ti-sparkles" style="font-size:12px;"></i> ARMOR</span>
+                    </div>
+                    <h3 class="fw-bold text-white mb-1" style="font-size:1.6rem; letter-spacing:-0.5px;">
+                        <i class="ti ti-robot" aria-hidden="true"></i> AI Maintenance Assistant
+                    </h3>
+                    <p style="color:rgba(255,255,255,0.55); font-size:0.88rem; margin:0;">
+                        Analisa gangguan Service Request — kemungkinan penyebab, langkah penanganan, & IKP relevan
+                    </p>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="ai-body">
+            <!-- INPUT -->
+            <div class="row g-2 mb-4">
+                <div class="col-md-9">
+                    <select id="cmSelector" class="form-select ai-select w-100">
+                        <option value="">⚡ Pilih SR untuk dianalisa...</option>
+                        {% for cm in recent_cms %}
+                        <option value="{{ cm.id }}">{{ cm.waktu_lapor|date:"d/m/Y" }} | SR-{{ cm.id }} | {{ cm.area|default:"-" }} | {{ cm.nama_peralatan|default:"(no equipment)" }} | {{ cm.deskripsi|default:""|truncatechars:50 }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn ai-btn w-100" onclick="getAIRecommendation()">
+                        <span id="btnText"><i class="ti ti-bolt" aria-hidden="true" style="font-size:16px;"></i> Analisa</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- LOADING -->
+            <div id="aiLoading" style="display:none;">
+                <div class="ai-loading-custom">
+                    <div class="ai-spinner"></div>
+                    <p style="color:rgba(255,255,255,0.5); font-size:0.9rem;">AI sedang menganalisa gangguan...</p>
+                    <p style="color:rgba(255,255,255,0.3); font-size:0.78rem;">Mencari kasus serupa & IKP relevan</p>
+                </div>
+            </div>
+
+            <!-- HASIL -->
+            <div id="aiResult" style="display:none;">
+                <!-- Query box -->
+                <div class="ai-query-box">
+                    <div style="color:rgba(255,255,255,0.4); font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">Menganalisa:</div>
+                    <div class="text-white fw-semibold" id="aiQuery" style="font-size:0.9rem;"></div>
+                </div>
+
+                <!-- LLM Result: 3 cards -->
+                <div id="llmResult" style="display:none;">
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <div class="ai-result-card ai-card-cause h-100">
+                                <div class="ai-card-header">
+                                    <i class="ti ti-alert-triangle" aria-hidden="true"></i> Kemungkinan Penyebab
+                                </div>
+                                <div class="ai-card-body">
+                                    <ol class="ps-3 mb-0" id="llmPenyebab"></ol>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="ai-result-card ai-card-steps h-100">
+                                <div class="ai-card-header">
+                                    <i class="ti ti-tool" aria-hidden="true"></i> Langkah Penanganan
+                                </div>
+                                <div class="ai-card-body">
+                                    <ol class="ps-3 mb-0" id="llmLangkah"></ol>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="ai-result-card ai-card-safety h-100">
+                                <div class="ai-card-header">
+                                    <i class="ti ti-shield-check" aria-hidden="true"></i> Perhatian Keselamatan
+                                </div>
+                                <div class="ai-card-body">
+                                    <ol class="ps-3 mb-0" id="llmKeselamatan"></ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="ai-divider">
+
+                <!-- Similar Cases + IKP -->
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div style="color:rgba(255,255,255,0.5); font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px;"><i class="ti ti-history" aria-hidden="true"></i> Kasus Serupa di Historis</div>
+                        <div id="similarCases"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div style="color:rgba(255,255,255,0.5); font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px;"><i class="ti ti-book-2" aria-hidden="true"></i> Instruksi Kerja Relevan</div>
+                        <div id="relevantIkp"></div>
+                    </div>
+                </div>
+
+                <div class="ai-powered">
+                    <div class="ai-pulse"></div>
+                    <span id="aiGeneratedAt"></span>
+                    &nbsp;·&nbsp;
+                    <span id="llmModel"></span>
+                </div>
+            </div>
+
+            <!-- ERROR -->
+            <div id="aiError" style="display:none;" class="alert mt-3" style="background:rgba(220,53,69,0.15); border:1px solid rgba(220,53,69,0.3); color:#ff6b7a; border-radius:12px;"></div>
+        </div>
+    </div>
+
+    <!-- ===== KNOWLEDGE MAINTENANCE CENTER ===== -->
+    <div class="knowledge-section">
+        <div class="kms-header">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <span style="background:linear-gradient(135deg,#FFD100,#f0a500); color:#004075; font-size:0.7rem; font-weight:700; padding:4px 12px; border-radius:20px; letter-spacing:1px; text-transform:uppercase;"><i class="ti ti-database" style="font-size:12px;"></i> Knowledge Base</span>
+                        
+                    </div>
+                    <h3 class="fw-bold text-white mb-1" style="font-size:1.5rem; letter-spacing:-0.3px;">
+                        <i class="ti ti-database" aria-hidden="true"></i> Knowledge Maintenance Center
+                    </h3>
+                    <p style="color:rgba(255,255,255,0.5); font-size:0.85rem; margin:0;">
+                        Pusat pencarian SOP, Manual, History Gangguan & Instruksi Kerja Pemeliharaan
+                    </p>
+                </div>
+
+            </div>
+        </div>
+        <div class="kms-body">
+            <!-- SEARCH -->
+            <form method="GET" action="{% url 'knowledge_search' %}">
+                <div class="input-group mb-4" style="box-shadow: 0 4px 20px rgba(255,209,0,0.1);">
+                    <input type="text" name="q" class="form-control kms-search" 
+                           placeholder="Cari SOP, manual, history kerusakan, instruksi kerja..." required>
+                    <button class="btn kms-search-btn" type="submit">
+                        <i class="ti ti-search" aria-hidden="true"></i> Cari
+                    </button>
+                </div>
+            </form>
+            <!-- CATEGORIES -->
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="kms-cat-card kms-cat-sop">
+                        <div class="kms-cat-icon"><i class="ti ti-file-check" aria-hidden="true"></i></div>
+                        <div class="kms-cat-title">SOP</div>
+                        <div class="kms-cat-desc">Standard Operating Procedure</div>
+                        <div class="kms-count-sop">{{ sop_count }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="kms-cat-card kms-cat-manual">
+                        <div class="kms-cat-icon"><i class="ti ti-settings-2" aria-hidden="true"></i></div>
+                        <div class="kms-cat-title">Manual</div>
+                        <div class="kms-cat-desc">Manual peralatan & maintenance</div>
+                        <div class="kms-count-manual">{{ manual_count }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="kms-cat-card kms-cat-history">
+                        <div class="kms-cat-icon"><i class="ti ti-archive" aria-hidden="true"></i></div>
+                        <div class="kms-cat-title">History</div>
+                        <div class="kms-cat-desc">History gangguan & pekerjaan</div>
+                        <div class="kms-count-history">{{ history_count }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+        <div class="mt-5 pt-4 text-center border-top">
+            <p class="text-muted small mt-2">© 2026 Armor v2.0 - Bidang Pemeliharaan & Operasi</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // =====================================================
+    // DATA DARI DJANGO
+    // =====================================================
+    const labelsJenis = {{ labels_jenis|default:"[]"|safe }};
+    const dataJenis = {{ data_jenis|default:"[]"|safe }};
+    const labelsArea = {{ labels_area|default:"[]"|safe }};
+    const dataArea = {{ data_area|default:"[]"|safe }};
+
+    // Debug di browser console
+    console.log("Total Pie =", dataJenis.reduce((a, b) => a + Number(b), 0));
+    console.log("Total Bar =", dataArea.reduce((a, b) => a + Number(b), 0));
+    console.log("Labels Pie =", labelsJenis.length);
+    console.log("Labels Bar =", labelsArea.length);
+
+    // =====================================================
+    // PIE CHART (SEMUA DATA)
+    // =====================================================
+    new Chart(document.getElementById('flmChart'), {
+        type: 'doughnut',
+        data: {
+            // PENTING: TIDAK ADA .slice(...)
+            labels: labelsJenis,
+            datasets: [{
+                // PENTING: TIDAK ADA .slice(...)
+                data: dataJenis.map(v => Number(v)),
+                backgroundColor: [
+                    '#0059A3',
+                    '#FFD100',
+                    '#00AEEF',
+                    '#1D6F42',
+                    '#FF8C00',
+                    '#6c757d',
+                    '#8e44ad',
+                    '#e74c3c',
+                    '#2ecc71',
+                    '#f39c12',
+                    '#16a085',
+                    '#2980b9'
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.label + ': ' + context.parsed.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // =====================================================
+    // BAR CHART (SEMUA DATA)
+    // =====================================================
+    new Chart(document.getElementById('areaChart'), {
+        type: 'bar',
+        data: {
+            // PENTING: TIDAK ADA .slice(...)
+            labels: labelsArea,
+            datasets: [{
+                label: 'Jumlah Pekerjaan (SR)',
+                // PENTING: TIDAK ADA .slice(...)
+                data: dataArea.map(v => Number(v)),
+                backgroundColor: '#0059A3',
+                borderRadius: 5
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+
+    // =====================================================
+    // TREND CHART
+    // =====================================================
+    const trendData = {{ trend_data|default:"{}"|safe }};
+
+    if (trendData.labels && trendData.labels.length > 0) {
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: trendData.labels,
+                datasets: trendData.datasets.map(ds => ({
+                    ...ds,
+                    borderWidth: 2,
+                    fill: false,
+                    pointBackgroundColor: '#0059A3',
+                    pointBorderColor: '#fff',
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }))
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0,
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                }
+            }
+        });
+    } else {
+        document.getElementById('trendChart').parentNode.innerHTML =
+            '<p class="text-muted text-center">Tidak ada data tren untuk ditampilkan.</p>';
+    }
+
+    // =====================================================
+    // TOGGLE LEADERBOARD
+    // =====================================================
+    document.getElementById('toggleLeaderboard').addEventListener('click', function() {
+        const container = document.getElementById('leaderboardContainer');
+        const button = document.getElementById('toggleLeaderboard');
+
+        if (container.classList.contains('d-none')) {
+            container.classList.remove('d-none');
+            button.textContent = 'Sembunyikan Leaderboard FLM';
+        } else {
+            container.classList.add('d-none');
+            button.textContent = 'Tampilkan Leaderboard FLM';
+        }
+    });
+
+    // =====================================================
+    // TOGGLE PREDICTIVE TABLE
+    // =====================================================
+    document.getElementById('togglePredictive').addEventListener('click', function() {
+        const container = document.getElementById('predictiveContainer');
+        const button = document.getElementById('togglePredictive');
+
+        if (container.classList.contains('d-none')) {
+            container.classList.remove('d-none');
+            button.textContent = 'Sembunyikan AI Assistance';
+        } else {
+            container.classList.add('d-none');
+            button.textContent = 'AI Assistance';
+        }
+    });
+</script>
+
+<script>
+    // =====================================================
+    // AI RECOMMENDATION ENGINE
+    // =====================================================
+    function getAIRecommendation() {
+        const cmId = document.getElementById('cmSelector').value;
+        if (!cmId) {
+            alert('Pilih CM terlebih dahulu!');
+            return;
+        }
+
+        // Show loading
+        document.getElementById('aiLoading').style.display = 'block';
+        document.getElementById('aiResult').style.display = 'none';
+        document.getElementById('aiError').style.display = 'none';
+
+        fetch(`/api/ai-recommendation/${cmId}/`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('aiLoading').style.display = 'none';
+
+                if (data.status === 'error') {
+                    document.getElementById('aiError').style.display = 'block';
+                    document.getElementById('aiError').textContent = 'Error: ' + data.message;
+                    return;
+                }
+
+                // Tampilkan query
+                document.getElementById('aiQuery').textContent = data.query || '-';
+
+                // Render similar cases — dark theme
+                let simHtml = '';
+                if (data.similar_cases && data.similar_cases.length > 0) {
+                    data.similar_cases.forEach(c => {
+                        const badgeClass = c.similarity >= 70 ? 'badge-high' : c.similarity >= 50 ? 'badge-med' : 'badge-low';
+                        const statusClass = c.status === 'Finish' ? 'status-finish' : 'status-open';
+                        const barColor = c.similarity >= 70 ? '#00c864' : c.similarity >= 50 ? '#ffc107' : 'rgba(255,255,255,0.3)';
+                        simHtml += `<div class="case-card">
+                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                <span style="color:#00d4ff; font-weight:700; font-size:0.88rem;">SR-${c.cm_id}</span>
+                                <span class="badge-sim ${badgeClass}">${c.similarity}%</span>
+                            </div>
+                            <div class="similarity-bar"><div class="similarity-fill" style="width:${c.similarity}%; background:${barColor};"></div></div>
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.75rem; margin:8px 0 4px;">${c.area || '-'} · ${c.nama_peralatan || '-'}</div>
+                            <div style="color:rgba(255,255,255,0.7); font-size:0.82rem; line-height:1.4;">${c.deskripsi ? c.deskripsi.substring(0,100)+'...' : '-'}</div>
+                            <span class="status-pill ${statusClass} mt-2 d-inline-block">${c.status}</span>
+                        </div>`;
+                    });
+                } else {
+                    simHtml = '<div style="color:rgba(255,255,255,0.3); text-align:center; padding:20px;">Tidak ada kasus serupa</div>';
+                }
+                document.getElementById('similarCases').innerHTML = simHtml;
+
+                // Render relevant IKP — dark theme
+                let ikpHtml = '';
+                if (data.relevant_ikp && data.relevant_ikp.length > 0) {
+                    data.relevant_ikp.forEach(ikp => {
+                        const badgeClass = ikp.relevance >= 70 ? 'badge-high' : ikp.relevance >= 50 ? 'badge-med' : 'badge-low';
+                        const barColor = ikp.relevance >= 70 ? '#00c864' : ikp.relevance >= 50 ? '#ffc107' : 'rgba(255,255,255,0.3)';
+                        ikpHtml += `<div class="ikp-card">
+                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                <span style="color:#00ff88; font-weight:700; font-size:0.82rem; flex:1; padding-right:8px;">${ikp.title}</span>
+                                <span class="badge-sim ${badgeClass}">${ikp.relevance}%</span>
+                            </div>
+                            <div class="similarity-bar"><div class="similarity-fill" style="width:${ikp.relevance}%; background:${barColor};"></div></div>
+                            <span style="background:rgba(0,212,255,0.15); color:#00d4ff; font-size:0.68rem; padding:2px 8px; border-radius:10px; margin-top:8px; display:inline-block;">${ikp.category}</span>
+                            <div style="color:rgba(255,255,255,0.55); font-size:0.8rem; line-height:1.5; margin-top:8px;">${ikp.chunk ? ikp.chunk.substring(0,130)+'...' : '-'}</div>
+                        </div>`;
+                    });
+                } else {
+                    ikpHtml = '<div style="color:rgba(255,255,255,0.3); text-align:center; padding:20px;">Tidak ada IKP relevan</div>';
+                }
+                document.getElementById('relevantIkp').innerHTML = ikpHtml;
+
+                // Generated at
+                document.getElementById('aiGeneratedAt').textContent =
+                    'Generated: ' + (data.generated_at || '-');
+
+                // Render LLM results (Kemungkinan Penyebab, Langkah, Keselamatan)
+                const llmFields = [
+                    ['llmPenyebab', data.kemungkinan_penyebab],
+                    ['llmLangkah', data.langkah_penanganan],
+                    ['llmKeselamatan', data.perhatian_keselamatan],
+                ];
+                
+                let hasLLM = false;
+                llmFields.forEach(([elemId, items]) => {
+                    const el = document.getElementById(elemId);
+                    if (el) {
+                        if (items && items.length > 0) {
+                            el.innerHTML = items.map(item => 
+                                `<li class="ai-list-item">${item}</li>`
+                            ).join('');
+                            hasLLM = true;
+                        } else {
+                            el.innerHTML = '<li class="ai-list-item" style="opacity:0.4;">Tidak ada data</li>';
+                        }
+                    }
+                });
+                
+                // Tampilkan section LLM
+                const llmDiv = document.getElementById('llmResult');
+                if (llmDiv) {
+                    llmDiv.style.display = hasLLM ? 'block' : 'none';
+                }
+                
+                // Model info
+                const modelEl = document.getElementById('llmModel');
+                if (modelEl && data.llm_model) {
+                    modelEl.textContent = '🤖 Powered by: ' + data.llm_model;
+                }
+
+                // Show result
+                document.getElementById('aiResult').style.display = 'block';
+                
+                // Scroll ke hasil
+                document.getElementById('aiResult').scrollIntoView({behavior: 'smooth'});
+            })
+            .catch(err => {
+                document.getElementById('aiLoading').style.display = 'none';
+                document.getElementById('aiError').style.display = 'block';
+                document.getElementById('aiError').textContent = 'Network error: ' + err;
+            });
+    }
+
+    // Auto-load kalau ada CM yang dipilih dari URL param
+    const urlParams = new URLSearchParams(window.location.search);
+    const autoCmId = urlParams.get('cm_id');
+    if (autoCmId) {
+        const sel = document.getElementById('cmSelector');
+        if (sel) {
+            sel.value = autoCmId;
+            getAIRecommendation();
+        }
+    }
+</script>
+
+</body>
+</html>

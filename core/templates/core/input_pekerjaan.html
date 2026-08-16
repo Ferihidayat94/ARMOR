@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>ARMOR - Input Pekerjaan</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f0f2f5; padding: 30px 0; }
+        .pln-card { border: none; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .card-header-pln { 
+            background: #0059A3; color: white; border-radius: 15px 15px 0 0; 
+            padding: 20px; border-bottom: 4px solid #FFD100;
+        }
+        .form-label { font-weight: 700; color: #0059A3; font-size: 0.85rem; }
+        .btn-pln { background: #0059A3; color: white; font-weight: bold; transition: 0.3s; }
+        .btn-pln:hover { background: #FFD100; color: #004075; }
+    </style>
+</head>
+<body>
+    <div class="container" style="max-width: 900px;">
+        <div class="card pln-card">
+            <div class="card-header-pln text-center">
+                <h3 class="m-0 fw-bold">FORM PELAPORAN PEKERJAAN</h3>
+                <p class="m-0 small opacity-75">Input Data SR, FLM & PM PLTU Bangka</p>
+                {% if user_regu %}<span class="badge bg-warning text-dark mt-2">Login sebagai Produksi {{ user_regu }}</span>{% else %}<span class="badge bg-success mt-2">Login sebagai Admin (Akses Penuh)</span>{% endif %}
+            </div>
+            <div class="card-body p-4">
+                <form method="POST" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label text-uppercase">Tanggal</label>
+                            <input type="date" name="tanggal" class="form-control border-primary" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-uppercase">Jenis Pekerjaan</label>
+                            <select name="jenis" class="form-select border-primary" required>
+                                <option value="Corrective Maintenance">Service Request</option>
+                                {% if not user_regu or user_regu == 'A' %}
+                                <option value="First Line Maintenance ( A )">First Line Maintenance ( A )</option>
+                                {% endif %}
+                                {% if not user_regu or user_regu == 'B' %}
+                                <option value="First Line Maintenance ( B )">First Line Maintenance ( B )</option>
+                                {% endif %}
+                                {% if not user_regu or user_regu == 'C' %}
+                                <option value="First Line Maintenance ( C )">First Line Maintenance ( C )</option>
+                                {% endif %}
+                                {% if not user_regu or user_regu == 'D' %}
+                                <option value="First Line Maintenance ( D )">First Line Maintenance ( D )</option>
+                                {% endif %}
+                                {% if not user_regu %}
+                                <option value="Preventive Maintenance">Preventive Maintenance ( Listrik )</option>
+                                <option value="Preventive Maintenance">Preventive Maintenance ( Mekanik )</option>
+                                <option value="Preventive Maintenance">Preventive Maintenance ( Konin )</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label text-uppercase">Area</label>
+                            <select name="area" class="form-select border-primary" required>
+                                <option value="Boiler">Boiler</option>
+                                <option value="Turbine">Turbine</option>
+                                <option value="CHCB">CHCB</option>
+                                <option value="WTP">WTP</option>
+                    
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-uppercase">Nama Peralatan</label>
+                            <input type="text" name="nama_peralatan" class="form-control border-primary" placeholder="Contoh: BFP Pump A" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-uppercase">Nomor SR</label>
+                            <input type="text" name="nomor_sr" class="form-control border-primary" required>
+                        </div>
+                        <div class="col-md-6">
+    <label class="form-label text-uppercase">Nama Pelaksana</label>
+    <div class="position-relative" style="z-index: 100;">
+        <input type="text" 
+               name="nama_pelaksana" 
+               id="namaPelaksanaInput" 
+               class="form-control border-primary" 
+               placeholder="Ketik nama, tekan koma untuk tambah personel lain..." 
+               autocomplete="off"
+               required>
+        <ul id="suggestionBox" 
+            class="list-group position-absolute w-100 shadow" 
+            style="display:none; max-height: 250px; overflow-y: auto; z-index: 1000;">
+        </ul>
+    </div>
+    <small class="text-muted">Contoh: <code>Abi, Kevin, Nova</code> (pisahkan dengan koma)</small>
+</div>
+
+<!-- DATA PERSONEL untuk autocomplete -->
+<script id="personelData" type="application/json">
+[{% for p in daftar_personel %}"{{ p.nama|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}]
+</script>
+
+<script>
+(function() {
+    const personels = JSON.parse(document.getElementById('personelData').textContent);
+    const input = document.getElementById('namaPelaksanaInput');
+    const box = document.getElementById('suggestionBox');
+    let activeIdx = -1;
+    
+    function getCurrentToken() {
+        const val = input.value;
+        const lastComma = val.lastIndexOf(',');
+        if (lastComma === -1) {
+            return { token: val.trim(), prefix: '' };
+        }
+        return { 
+            token: val.substring(lastComma + 1).trim(), 
+            prefix: val.substring(0, lastComma + 1) + ' '
+        };
+    }
+    
+    function showSuggestions() {
+        const { token, prefix } = getCurrentToken();
+        if (!token) {
+            box.style.display = 'none';
+            return;
+        }
+        const tokenUpper = token.toUpperCase();
+        const matches = personels.filter(p => 
+            p.toUpperCase().includes(tokenUpper)
+        ).slice(0, 8);
+        
+        if (matches.length === 0) {
+            box.style.display = 'none';
+            return;
+        }
+        
+        box.innerHTML = matches.map((p, i) => 
+            `<li class="list-group-item list-group-item-action" 
+                 data-name="${p}" 
+                 style="cursor:pointer; padding: 8px 12px;">${p}</li>`
+        ).join('');
+        
+        box.style.display = 'block';
+        activeIdx = -1;
+        
+        box.querySelectorAll('li').forEach((li, idx) => {
+            li.addEventListener('click', () => selectSuggestion(li.dataset.name));
+            li.addEventListener('mouseenter', () => {
+                activeIdx = idx;
+                updateActive();
+            });
+        });
+    }
+    
+    function selectSuggestion(name) {
+        const { prefix } = getCurrentToken();
+        input.value = prefix + name + ', ';
+        box.style.display = 'none';
+        input.focus();
+    }
+    
+    function updateActive() {
+        const items = box.querySelectorAll('li');
+        items.forEach((li, idx) => {
+            if (idx === activeIdx) {
+                li.classList.add('active');
+                li.style.background = '#0d6efd';
+                li.style.color = '#fff';
+            } else {
+                li.classList.remove('active');
+                li.style.background = '';
+                li.style.color = '';
+            }
+        });
+    }
+    
+    input.addEventListener('input', showSuggestions);
+    input.addEventListener('focus', showSuggestions);
+    
+    input.addEventListener('keydown', (e) => {
+        const items = box.querySelectorAll('li');
+        if (items.length === 0) return;
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIdx = Math.min(activeIdx + 1, items.length - 1);
+            updateActive();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIdx = Math.max(activeIdx - 1, 0);
+            updateActive();
+        } else if (e.key === 'Enter' && activeIdx >= 0) {
+            e.preventDefault();
+            selectSuggestion(items[activeIdx].dataset.name);
+        } else if (e.key === 'Escape') {
+            box.style.display = 'none';
+        }
+    });
+    
+    // Tutup suggestion saat klik di luar
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !box.contains(e.target)) {
+            box.style.display = 'none';
+        }
+    });
+})();
+</script>
+
+                        <div class="col-md-6">
+                            <label class="form-label text-uppercase">Status</label>
+                            <select name="status" class="form-select border-primary" required>
+                                <option value="Open">Open</option>
+                                
+                                <option value="Pending">Pending</option>
+                                <option value="Finish">Finish</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label text-uppercase">Keterangan Pekerjaan</label>
+                            <textarea name="keterangan" class="form-control border-primary" rows="2" required></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-uppercase text-danger">Upload Bukti (Before)</label>
+                            <input type="file" name="evidance" class="form-control border-danger" accept="image/*">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-uppercase text-success">Upload Bukti (After)</label>
+                            <input type="file" name="evidance_after" class="form-control border-success" accept="image/*">
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-top">
+                        <button type="submit" class="btn btn-pln w-100 py-3 fs-5 shadow"> SIMPAN </button>
+                        <a href="/dashboard/" class="btn btn-light w-100 mt-2 fw-bold text-muted">Kembali</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

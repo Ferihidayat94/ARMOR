@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARMOR - Monitoring Pekerjaan</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body { background: #f0f2f5; font-family: 'Segoe UI', sans-serif; }
+        .table-card { 
+            background: white; border-radius: 15px; overflow: hidden; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05); border-top: 5px solid #FFD100;
+        }
+        .thead-pln { background: #0059A3; color: white; border-bottom: 3px solid #FFD100; }
+        .badge-status { font-weight: bold; border-radius: 20px; padding: 5px 15px; min-width: 100px; display: inline-block; }
+        .btn-action { border-radius: 8px; font-weight: bold; transition: 0.3s; }
+        .filter-section { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        
+        /* Perbaikan: warna biru dengan !important untuk mengatasi konflik */
+        .clickable-sr { 
+            cursor: pointer; 
+            transition: 0.2s; 
+            color: #0059A3 !important; 
+            text-decoration: none; 
+        }
+        .clickable-sr:hover { 
+            text-decoration: underline; 
+            color: #003d6e !important; 
+        }
+
+        .evidence-wrapper { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+        .evidence-btn { width: 100px; font-size: 0.75rem; font-weight: bold; border-radius: 6px; padding: 4px 8px; text-decoration: none; }
+        .btn-before { background: #eef6ff; color: #0059A3; border: 1px solid #0059A3; }
+        .btn-after { background: #28a745; color: white; border: 1px solid #28a745; }
+        .no-photo { font-size: 0.7rem; color: #bbb; font-style: italic; }
+        .col-tanggal { width: 100px; }
+        .col-sr { width: 280px; }
+        .col-keterangan { width: 220px; }
+        .col-jenis { width: 160px; }
+        .col-status { width: 140px; }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-4 mx-auto" style="max-width: 1250px;">
+            <div>
+                <h2 class="fw-bold m-0" style="color: #0059A3;">MONITORING PEKERJAAN</h2>
+                <p class="text-muted m-0 small">Data real-time SR, FLM & PM PLTU Bangka</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/input-pekerjaan/" class="btn btn-primary btn-action shadow-sm">➕ Input Baru</a>
+                <a href="/dashboard/" class="btn btn-outline-secondary btn-action shadow-sm">Dashboard</a>
+            </div>
+        </div>
+
+        <div class="filter-section mx-auto" style="max-width: 1250px;">
+            <form method="GET" action="/daftar-pekerjaan/" id="filterForm" class="row g-3 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">Jenis Pekerjaan</label>
+                    <select name="filter_jenis" class="form-select form-select-sm">
+                        <option value="">Semua Jenis Pekerjaan</option>
+                        <option value="Corrective Maintenance" {% if filter_jenis == 'Corrective Maintenance' %}selected{% endif %}>Service Request</option>
+                        <option value="First Line Maintenance ( A )" {% if filter_jenis == 'First Line Maintenance ( A )' %}selected{% endif %}>First Line Maintenance ( A )</option>
+                        <option value="First Line Maintenance ( B )" {% if filter_jenis == 'First Line Maintenance ( B )' %}selected{% endif %}>First Line Maintenance ( B )</option>
+                        <option value="First Line Maintenance ( C )" {% if filter_jenis == 'First Line Maintenance ( C )' %}selected{% endif %}>First Line Maintenance ( C )</option>
+                        <option value="First Line Maintenance ( D )" {% if filter_jenis == 'First Line Maintenance ( D )' %}selected{% endif %}>First Line Maintenance ( D )</option>
+                        <option value="Preventive Maintenance" {% if filter_jenis == 'Preventive Maintenance' %}selected{% endif %}>Preventive Maintenance</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">Dari Tanggal</label>
+                    <input type="text" name="start_date" value="{{ start_date }}" class="form-control form-control-sm datepicker bg-white" placeholder="dd/mm/yyyy">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">Sampai Tanggal</label>
+                    <input type="text" name="end_date" value="{{ end_date }}" class="form-control form-control-sm datepicker bg-white" placeholder="dd/mm/yyyy">
+                </div>
+                
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">Pencarian Nomor SR</label>
+                    <input type="text" name="search_sr" value="{{ search_sr }}" class="form-control form-control-sm" placeholder="Contoh: SR-123...">
+                </div>
+                <div class="col-md-4 text-end">
+                    <button type="submit" class="btn btn-sm btn-dark px-3 fw-bold"><i class="bi bi-search"></i> Filter</button>
+                    <div class="btn-group ms-2">
+                        <button type="button" class="btn btn-sm btn-success dropdown-toggle fw-bold" data-bs-toggle="dropdown">
+                            <i class="bi bi-cloud-arrow-down"></i> Download
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="exportData('excel')"><i class="bi bi-file-earmark-excel text-success"></i> Excel</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf text-danger"></i> PDF </a></li>
+                        </ul>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="table-card mx-auto" style="max-width: 1250px;">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle m-0">
+                    <thead class="thead-pln">
+                        <tr class="text-center">
+                            <th class="col-tanggal">Tanggal</th>
+                            <th class="text-start ps-4 col-sr">No SR & Area</th>
+                            <th class="text-start col-keterangan">Keterangan</th>
+                            <th class="col-jenis">Jenis</th>
+                            <th>Pelaksana</th>
+                            <th class="col-status">Status</th>
+                            <th style="width: 130px;">Dokumentasi</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-secondary fw-medium">
+                        {% for job in semua_pekerjaan %}
+                        <tr>
+                            <!-- Gunakan tgl_display yang sudah diformat di view -->
+                            <td class="text-center small">{{ job.tgl_display }}</td>
+
+                            <td class="text-start ps-4">
+                                {% if user.is_superuser or job.created_by_id == user.id %}
+                                <div class="fw-bold clickable-sr" onclick="showDeleteModal('{{ job.ID }}', '{{ job.nomor_sr|default:'-' }}')">
+                                    SR: {{ job.nomor_sr|default:"-" }}
+                                </div>
+                                {% else %}
+                                <div class="fw-bold">SR: {{ job.nomor_sr|default:"-" }}</div>
+                                {% endif %}
+                                <div class="small text-muted mb-1">{{ job.Area }}</div>
+                                <div class="small text-muted">{{ job.nama_peralatan }}</div>
+                            </td>
+                            <td class="text-start small">{{ job.Keterangan|default:"-" }}</td>
+                            <td class="text-center">
+                                <span class="badge bg-light text-primary border border-primary" style="font-size: 0.70rem;">{{ job.Jenis }}</span>
+                            </td>
+                            <td class="text-center small">{{ job.nama_pelaksana|default:"-" }}</td>
+                            <td class="text-center">
+                                {% if job.Status == 'Finish' %}
+                                    <span class="badge bg-success badge-status text-white">FINISH</span>
+                                {% elif job.Status == 'On Progress' %}
+                                    <span class="badge bg-warning text-dark badge-status">PROGRESS</span>
+                                {% else %}
+                                    <span class="badge bg-danger badge-status text-white">{{ job.Status|upper }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="evidence-wrapper">
+                                    {% if job.Evidance %}
+                                        <a href="{{ job.Evidance }}" target="_blank" class="evidence-btn btn-before text-center mb-1">📸 Before</a>
+                                    {% else %}
+                                        <span class="no-photo mb-1">No Before</span>
+                                    {% endif %}
+
+                                    {% if job.evidance_after and job.Status == 'Finish' %}
+                                        <a href="{{ job.evidance_after }}" target="_blank" class="evidence-btn btn-after text-center">📸 After</a>
+                                    {% elif job.Status != 'Finish' %}
+                                        {% if user.is_superuser or job.created_by_id == user.id %}
+                                        <button class="btn btn-sm btn-success w-100" style="font-size: 0.70rem; font-weight: bold; border-radius: 6px;" onclick="showUpdateModal('{{ job.ID }}', '{{ job.nomor_sr|default:'-' }}')">
+                                            ⬆️ Selesaikan
+                                        </button>
+                                        {% else %}
+                                        <span class="no-photo">Bukan Inputan Anda</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="no-photo">No After</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">Belum ada data pekerjaan yang tercatat atau cocok dengan filter.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Hapus -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="border-radius: 15px;">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold">Opsi Pekerjaan</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center pb-4">
+                    <p>Pekerjaan dengan Nomor SR: <b id="modalSrText"></b></p>
+                    <p class="text-muted small">Apa yang ingin Anda lakukan terhadap data ini?</p>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-warning fw-bold" onclick="showEditSrForm()">✏️ Edit Nomor SR</button>
+                        <a id="confirmDeleteBtn" href="#" class="btn btn-danger fw-bold">🗑️ Hapus Permanen</a>
+                        <button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">Batal</button>
+                    </div>
+                    
+                    <!-- Form Edit SR (hidden by default) -->
+                    <form id="editSrForm" method="POST" action="" class="mt-3" style="display:none;">
+                        {% csrf_token %}
+                        <hr>
+                        <div class="text-start mb-2">
+                            <label class="form-label small fw-bold text-warning">Nomor SR Baru:</label>
+                            <input type="text" name="nomor_sr_baru" id="nomorSrBaruInput" class="form-control border-warning" placeholder="Masukkan nomor SR baru" required>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-warning fw-bold">💾 Simpan SR Baru</button>
+                            <button type="button" class="btn btn-light btn-sm" onclick="hideEditSrForm()">← Kembali</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Update/Selesaikan -->
+    <div class="modal fade" id="updateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="border-radius: 15px;">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-success">Penyelesaian Pekerjaan</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="updateForm" method="POST" action="" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="modal-body pb-4">
+                        <p class="text-muted small mb-3">Menyelesaikan pekerjaan dengan SR: <b id="updateModalSrText" class="text-dark"></b></p>
+                        
+                        <div class="mb-4 text-start">
+                            <label class="form-label small fw-bold text-success">Upload Foto Hasil Pekerjaan (After) *</label>
+                            <input type="file" name="evidance_after" class="form-control border-success" accept="image/*" required>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success fw-bold">Simpan</button>
+                            <button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">Batal</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/id.js"></script>
+    
+    <script>
+        flatpickr(".datepicker", {
+            altInput: true,
+            altFormat: "d/m/Y",
+            dateFormat: "Y-m-d",
+            locale: "id"
+        });
+
+        let currentEditId = null;
+        
+        function showEditSrForm() {
+            const form = document.getElementById('editSrForm');
+            form.action = `/edit-nomor-sr/${currentEditId}/`;
+            form.style.display = 'block';
+            // Hide tombol Edit/Hapus
+            form.previousElementSibling.style.display = 'none';
+        }
+        
+        function hideEditSrForm() {
+            document.getElementById('editSrForm').style.display = 'none';
+            document.querySelector('#deleteModal .d-grid').style.display = 'grid';
+        }
+        
+        function showDeleteModal(id, sr) {
+            currentEditId = id;
+            // Pre-fill input dengan SR lama
+            const inp = document.getElementById('nomorSrBaruInput');
+            if (inp) inp.value = (sr === '-') ? '' : sr;
+            // Reset tampilan modal ke state awal
+            document.getElementById('editSrForm').style.display = 'none';
+            const grid = document.querySelector('#deleteModal .d-grid');
+            if (grid) grid.style.display = 'grid';
+            document.getElementById('modalSrText').innerText = sr;
+            document.getElementById('confirmDeleteBtn').href = "/hapus-pekerjaan/" + id + "/";
+            var myModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+            myModal.show();
+        }
+
+        function showUpdateModal(id, sr) {
+            document.getElementById('updateModalSrText').innerText = sr;
+            document.getElementById('updateForm').action = "/update-pekerjaan/" + id + "/";
+            var myModal = new bootstrap.Modal(document.getElementById('updateModal'));
+            myModal.show();
+        }
+
+        function exportData(format) {
+            const form = document.getElementById('filterForm');
+            const params = new URLSearchParams(new FormData(form)).toString();
+            window.location.href = `/export-pekerjaan/?format=${format}&${params}`;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>ARMOR - Form & Data Absensi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f4f7f9; font-family: 'Segoe UI', sans-serif; }
+        .pln-card { border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,89,163,0.1); overflow: hidden; margin-bottom: 30px; }
+        .card-header-pln { background: linear-gradient(135deg, #0059A3 0%, #004075 100%); color: white; padding: 25px; border-bottom: 5px solid #FFD100; }
+        .form-label { font-weight: 700; color: #0059A3; margin-bottom: 8px; font-size: 0.9rem; }
+        .form-control, .form-select { border-radius: 12px; padding: 12px; border: 1px solid #dee2e6; transition: 0.3s; }
+        .form-control:focus, .form-select:focus { border-color: #0059A3; box-shadow: 0 0 0 0.25rem rgba(0, 89, 163, 0.1); }
+        .btn-pln { background: #0059A3; color: white; font-weight: bold; border-radius: 12px; padding: 15px; transition: 0.3s; border: none; }
+        .btn-pln:hover { background: #FFD100; color: #004075; transform: translateY(-3px); }
+        .btn-back { color: #6c757d; font-weight: 600; text-decoration: none; transition: 0.3s; }
+        .btn-back:hover { color: #0059A3; }
+        .table-card { background: white; border-radius: 15px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .thead-pln { background: #eef6ff; color: #0059A3; font-weight: bold; font-size: 0.95rem; }
+    </style>
+</head>
+<body class="py-5">
+    <div class="container" style="max-width: 950px;">
+        
+        <!-- Form Input Absensi -->
+        <div class="card pln-card">
+            <div class="card-header-pln text-center">
+                <img src="{% static 'images/logo_pln.png' %}" alt="PLN" style="height: 40px; margin-bottom: 15px;">
+                <h3 class="fw-bold m-0">FORM ABSENSI</h3>
+                <p class="m-0 small opacity-75 text-uppercase">Sistem Monitoring Personel ARMOR</p>
+            </div>
+            <div class="card-body p-4">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-success alert-dismissible fade show text-center shadow-sm" role="alert">
+                            <strong>Berhasil!</strong> {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <form method="POST">
+                    {% csrf_token %} 
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tanggal Absensi</label>
+                            <input type="date" name="tanggal" class="form-control" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nama Personel</label>
+                            <select name="nama_personel" class="form-select" required>
+                                <option value="">-- Pilih Nama Personel --</option>
+                                {% for p in daftar_personel %}
+                                    <option value="{{ p.id }}">{{ p.nama }} ({{ p.grup|default:"-" }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Status Kehadiran</label>
+                            <select name="status_absensi" class="form-select" required>
+                                <option value="Hadir">Hadir</option>
+                                <option value="Sakit">Sakit</option>
+                                <option value="Izin">Izin</option>
+                                <option value="Cuti">Cuti</option>
+                                <option value="Tukar Dinas">Tukar Dinas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Shift Kerja</label>
+                            <select name="shift" class="form-select" required>
+                                <option value="Pagi">Pagi</option>
+                                <option value="Sore">Sore</option>
+                                <option value="Malam">Malam</option>
+                                <option value="Non-Shift">Non-Shift</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">Keterangan Khusus</label>
+                        <input type="text" name="keterangan" class="form-control" placeholder="Isi jika diperlukan (opsional)">
+                    </div>
+                    <button type="submit" class="btn btn-pln w-100 shadow-sm mb-3">SIMPAN DATA ABSENSI ⚡</button>
+                    <div class="text-center">
+                        <a href="/dashboard/" class="btn-back small">← Kembali ke Dashboard Utama</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Filter: Regu, Tahun, Bulan -->
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3 mt-5">
+            <h4 class="fw-bold m-0" style="color: #0059A3;">📊 Grafik & Riwayat Kehadiran</h4>
+            <form method="GET" class="d-flex gap-2 align-items-center bg-white p-2 rounded shadow-sm flex-wrap">
+                <select name="regu" class="form-select form-select-sm border-0 bg-light" style="border-radius: 8px; width: 130px;">
+                    <option value="">Semua Regu</option>
+                    <option value="Produksi A" {% if filter_regu == 'Produksi A' %}selected{% endif %}>Produksi A</option>
+                    <option value="Produksi B" {% if filter_regu == 'Produksi B' %}selected{% endif %}>Produksi B</option>
+                    <option value="Produksi C" {% if filter_regu == 'Produksi C' %}selected{% endif %}>Produksi C</option>
+                    <option value="Produksi D" {% if filter_regu == 'Produksi D' %}selected{% endif %}>Produksi D</option>
+                </select>
+                <select name="tahun" class="form-select form-select-sm border-0 bg-light" style="border-radius: 8px; width: 100px;">
+                    <option value="">Tahun</option>
+                    {% for t in tahun_list %}
+                        <option value="{{ t }}" {% if filter_tahun == t|stringformat:"s" %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+                <select name="bulan" class="form-select form-select-sm border-0 bg-light" style="border-radius: 8px; width: 120px;">
+                    <option value="">Seluruh Bulan</option>
+                    {% for b in bulan_options %}
+                        <option value="{{ b.value }}" {% if filter_bulan == b.value|stringformat:"s" %}selected{% endif %}>{{ b.label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-pln px-3 m-0" style="padding: 6px 15px;">Tampilkan</button>
+                <a href="{% url 'halaman_input' %}" class="btn btn-sm btn-outline-secondary me-1" style="border-radius: 8px;">Reset</a>
+            </form>
+        </div>
+
+        <!-- Card Statistik Top Kehadiran & Ketidakhadiran (semua nama dengan nilai tertinggi) -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card text-white bg-success shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">🏆 Top Kehadiran</h5>
+                        <p class="display-6">{{ top_hadir_names|join:", " }}</p>
+                        <p class="lead">{{ top_hadir_jumlah }} Hari Hadir</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card text-white bg-danger shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">⚠️ Top Ketidakhadiran</h5>
+                        <p class="display-6">{{ top_tidak_hadir_names|join:", " }}</p>
+                        <p class="lead">{{ top_tidak_hadir_jumlah }} Hari Tidak Hadir</p>
+                        <small class="text-white-50">(Sakit + Izin + Cuti + Tukar Dinas)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Grafik Batang Bertumpuk -->
+        <div class="card table-card mb-4 p-4">
+            <div style="height: 350px; width: 100%;">
+                <canvas id="absensiChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Tombol Toggle Riwayat -->
+        <div class="d-flex justify-content-end mb-2">
+            <button class="btn btn-outline-primary btn-sm" type="button" id="toggleRiwayat">
+                Tampilkan Riwayat
+            </button>
+        </div>
+
+        <!-- Tabel Riwayat (disembunyikan awal) -->
+        <div id="riwayatContainer" class="d-none">
+            <div class="table-card table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="thead-pln">
+                        <tr>
+                            <th class="ps-4">Tanggal</th>
+                            <th>Nama Personel</th>
+                            <th>Regu</th>
+                            <th>Status</th>
+                            <th>Shift</th>
+                            <th>Keterangan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for person in riwayat_absensi %}
+                        <tr>
+                            <td class="ps-4">{{ person.tanggal }}</td>
+                            <td class="fw-bold text-dark">{{ person.nama_personel }}</td> 
+                            <td><span class="badge bg-light text-dark border">{{ person.regu|default:"-" }}</span></td>
+                            <td>
+                                {% if person.status_absensi == 'Hadir' %}
+                                    <span class="badge bg-success">Hadir</span>
+                                {% elif person.status_absensi == 'Sakit' %}
+                                    <span class="badge bg-warning text-dark">Sakit</span>
+                                {% elif person.status_absensi == 'Izin' %}
+                                    <span class="badge bg-info text-dark">Izin</span>
+                                {% elif person.status_absensi == 'Cuti' %}
+                                    <span class="badge bg-primary">Cuti</span>
+                                {% elif person.status_absensi == 'Tukar Dinas' %}
+                                    <span class="badge bg-secondary">Tukar Dinas</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ person.status_absensi }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted small fw-bold">{{ person.shift|default:"-" }}</td> 
+                            <td class="text-muted small">{{ person.keterangan|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">Belum ada data absensi pada filter ini.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts Bootstrap, Chart.js, dan Toggle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Data grafik dari context
+        const chartLabels = {{ labels_chart|default:"[]"|safe }};
+        const chartHadir = {{ data_hadir|default:"[]"|safe }};
+        const chartSakit = {{ data_sakit|default:"[]"|safe }};
+        const chartIzin = {{ data_izin|default:"[]"|safe }};
+        const chartCuti = {{ data_cuti|default:"[]"|safe }};
+        const chartTukar = {{ data_tukar|default:"[]"|safe }};
+
+        const ctx = document.getElementById('absensiChart').getContext('2d');
+        const absensiChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: chartLabels,
+                datasets: [
+                    { label: 'Hadir', data: chartHadir, backgroundColor: '#0059A3', borderRadius: 4 },
+                    { label: 'Sakit', data: chartSakit, backgroundColor: '#FFD100', borderRadius: 4 },
+                    { label: 'Izin', data: chartIzin, backgroundColor: '#00AEEF', borderRadius: 4 },
+                    { label: 'Cuti', data: chartCuti, backgroundColor: '#1D6F42', borderRadius: 4 },
+                    { label: 'Tukar Dinas', data: chartTukar, backgroundColor: '#6c757d', borderRadius: 4 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true, grid: { display: false } },
+                    y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { mode: 'index', intersect: false }
+                }
+            }
+        });
+
+        // Toggle tampilan riwayat
+        document.getElementById('toggleRiwayat').addEventListener('click', function() {
+            var container = document.getElementById('riwayatContainer');
+            var button = document.getElementById('toggleRiwayat');
+            if (container.classList.contains('d-none')) {
+                container.classList.remove('d-none');
+                button.textContent = 'Sembunyikan Riwayat';
+            } else {
+                container.classList.add('d-none');
+                button.textContent = 'Tampilkan Riwayat';
+            }
+        });
+    </script>
+</body>
+</html>

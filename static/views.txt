@@ -1,0 +1,1742 @@
+from core.local_supabase import create_client
+import os
+import uuid
+import requests
+import io
+import pandas as pd
+import json
+import logging
+import re
+from datetime import timedelta, datetime, date
+
+from django.shortcuts import render, redirect
+from django.http import HttpResponse
+from django.conf import settings
+from django.utils import timezone
+
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+
+from dotenv import load_dotenv
+
+# TAMBAHKAN IMPORT INI
+from core.models import Pekerjaan
+# Jika Anda juga menggunakan model lain, gunakan:
+# from core.models import Pekerjaan, PTW, UserProfile
+# atau:
+# from core.models import 
+# Khusus gambar & PDF
+from PIL import Image, ExifTags
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle,
+    Image as RLImage, Paragraph, Spacer, PageBreak
+)
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+# ================= HELPER UMUM =================
+
+def fix_image_orientation(image):
+    try:
+        exif = image.getexif()
+        orientation = next((tag for tag, name in ExifTags.TAGS.items() if name == 'Orientation'), None)
+        if orientation and orientation in exif:
+            actions = {3: 180, 6: 270, 8: 90}
+            if exif[orientation] in actions:
+                image = image.rotate(actions[exif[orientation]], expand=True)
+    except Exception:
+        pass
+    return image
+
+
+def _optimize_image_from_url(url, width=600, quality=70, timeout=2):
+    """Ambil gambar dari URL atau Path Lokal, resize, kembalikan BytesIO."""
+    import os, io, requests
+    from PIL import Image
+    
+    try:
+        if not url:
+            return None
+            
+        url_str = str(url).strip()
+        
+        # KONDISI 1: Jika ini data baru (jalur file lokal di VPS)
+        if not url_str.startswith('http'):
+            # Bersihkan text /media/ di depan agar tidak ganda saat digabung
+            clean_p = url_str.replace('/media/', '', 1) if url_str.startswith('/media/') else url_str.replace('media/', '', 1)
+            abs_path = os.path.join('/var/www/armor/media', clean_p)
+            
+            if os.path.exists(abs_path):
+                with open(abs_path, 'rb') as f_img:
+                    img = Image.open(io.BytesIO(f_img.read())).convert("RGB")
+            else:
+                return None
+                
+        # KONDISI 2: Jika ini data lama (URL internet dari Supabase Cloud)
+        else:
+            resp = requests.get(url_str, stream=True, timeout=timeout)
+            resp.raise_for_status()
+            img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+            
+        # Jalankan fungsi orientasi bawaan aplikasi Anda jika ada
+        try:
+            img = fix_image_orientation(img)
+        except Exception:
+            pass
+            
+        # Ukuran resize standar ReportLab bawaan Anda
+        if img.width > width:
+            ratio = width / img.width
+            new_h = int(img.height * ratio)
+            img = img.resize((width, new_h), Image.LANCZOS)
+            
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=quality)
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
+def _add_kop_surat(elements, styles):
+    try:
+        logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo_pln1.png')
+        if os.path.exists(logo_path):
+            logo_img = RLImage(logo_path, width=1.1*inch, height=0.50*inch, hAlign='LEFT')
+            header_text = Paragraph(
+                "<b>PT PLN NUSANTARA POWER SERVICES</b><br/>"
+                "Unit PLTU Bangka<br/>"
+                "<font size=8 color=grey>Jl. Lintas Timur - Air Anyir, Kec. Merawang, Kab. Bangka</font>",
+                styles['Normal']
+            )
+            kop_table = Table([[logo_img, header_text]], colWidths=[1.2*inch, 5.8*inch])
+            kop_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('LEFTPADDING', (1,0), (1,0), 10),
+            ]))
+            elements.append(kop_table)
+            elements.append(Spacer(1, 5))
+            elements.append(Paragraph("<hr width='100%' size='2' color='black'/>", styles['Normal']))
+            elements.append(Spacer(1, 15))
+    except Exception as e:
+        logger.error(f"Kop surat gagal: {e}")
+
+
+def _add_vertical_detail_table(elements, styles, data_pairs, col_widths=[100, 380]):
+    table = Table(data_pairs, colWidths=col_widths, style=[
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ECF0F1')),
+        ('TEXTCOLOR', (0,0), (0, -1), colors.HexColor('#2C3E50')),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#BDC3C7')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#BDC3C7')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+    ])
+    elements.append(table)
+
+
+def _add_evidence_images(elements, styles, img_urls, label1="Evidence", label2=""):
+    import os
+    from reportlab.platypus import Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib import colors
+    
+    imgs = []
+    for url in img_urls:
+        if url:
+            buf = _optimize_image_from_url(url)
+            if buf:
+                # Menggunakan keepWithNext agar gambar tidak terpisah halaman secara berantakan
+                img_obj = RLImage(buf, width=3.0*inch, height=2.2*inch, kind='bound')
+                img_obj.keepWithNext = True
+                imgs.append(img_obj)
+            else:
+                imgs.append(None)
+        else:
+            imgs.append(None)
+            
+    if any(imgs):
+        elements.append(Spacer(1, 15))
+        if len(imgs) == 2:
+            cell1 = imgs[0] if imgs[0] else Paragraph("<i>Tidak tersedia</i>", styles['Normal'])
+            cell2 = imgs[1] if imgs[1] else Paragraph("<i>Tidak tersedia</i>", styles['Normal'])
+            
+            # Melonggarkan lebar kolom tabel menjadi 3.5 inch agar gambar muat sempurna
+            img_table = Table([
+                [Paragraph(f"<b>{label1}:</b>", styles['Normal']), Paragraph(f"<b>{label2}:</b>", styles['Normal'])],
+                [cell1, cell2]
+            ], colWidths=[3.5*inch, 3.5*inch], rowHeights=None) # rowHeights=None memaksa tinggi otomatis mengikuti gambar
+            
+            img_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                ('TOPPADDING', (0,0), (-1,-1), 5),
+            ]))
+            elements.append(img_table)
+        else:
+            cell = imgs[0] if imgs[0] else Paragraph("<i>Tidak tersedia</i>", styles['Normal'])
+            elements.append(Paragraph(f"<b>{label1}:</b>", styles['Normal']))
+            elements.append(Spacer(1, 5))
+            elements.append(cell)
+        elements.append(Spacer(1, 15))
+
+
+def _add_signature_block(elements, styles, pelaksana_text="__________________________"):
+    elements.append(Spacer(1, 60))
+    sig_data = [
+        ["Pelaksana Pekerjaan,", "Mengetahui / Menyetujui,"],
+        ["", "Team Leader"],
+        ["", ""],
+        ["", ""],
+        ["", ""],
+        [f"( {pelaksana_text} )", "( __________________________ )"]
+    ]
+    sig_table = Table(sig_data, colWidths=[3.5*inch, 3.5*inch])
+    sig_table.setStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+    ])
+    elements.append(sig_table)
+
+
+# ================= PDF REPORT PEKERJAAN =================
+
+def create_pdf_report(filtered_data, report_type):
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=20, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='TitleCenter', alignment=TA_CENTER, fontSize=14, leading=20, spaceAfter=10, textColor=colors.HexColor('#2C3E50')))
+
+    elements = []
+    for _, row in filtered_data.iterrows():
+        _add_kop_surat(elements, styles)
+
+        title_text = f"<b>LAPORAN MONITORING {'SEMUA PEKERJAAN' if not report_type else report_type.upper()}</b>"
+        elements.append(Paragraph(title_text, styles['TitleCenter']))
+        elements.append(Spacer(1, 12))
+
+        alat = str(row.get('nama_peralatan', '-'))
+        if pd.isna(row.get('nama_peralatan')) or alat.strip() == '':
+            alat = '-'
+
+        nama_pelaksana = str(row.get('Nama Pelaksana', '-'))
+        if pd.isna(row.get('Nama Pelaksana')) or nama_pelaksana.strip() == '':
+            nama_ttd = '__________________________'
+        else:
+            nama_ttd = nama_pelaksana
+
+        data_pairs = [
+            ["ID", str(row.get('ID', ''))],
+            ["Tanggal", pd.to_datetime(row.get('Tanggal')).strftime('%d-%m-%Y') if pd.notna(row.get('Tanggal')) else '-'],
+            ["Nomor SR", str(row.get('Nomor SR', '-'))],
+            ["Jenis", str(row.get('Jenis', ''))],
+            ["Area", str(row.get('Area', ''))],
+            ["Peralatan", alat],
+            ["Status", str(row.get('Status', ''))],
+            ["Keterangan", Paragraph(str(row.get('Keterangan', '')).replace('\n', '<br/>'), styles['Normal'])],
+        ]
+        _add_vertical_detail_table(elements, styles, data_pairs)
+
+        url_before, url_after = None, None
+        for col in row.keys():
+            col_lower = str(col).lower()
+            if col_lower in ['evidance', 'evidence', 'evidance_before', 'evidence_before']:
+                if isinstance(row[col], str) and (row[col].startswith('http') or row[col].startswith('/media/') or row[col].startswith('media/')):
+                    url_before = row[col]
+            elif col_lower in ['evidance after', 'evidance_after', 'evidence after', 'evidence_after']:
+                if isinstance(row[col], str) and (row[col].startswith('http') or row[col].startswith('/media/') or row[col].startswith('media/')):
+                    url_after = row[col]
+        if url_before or url_after:
+            _add_evidence_images(elements, styles, [url_before, url_after], label1="Evidence Before", label2="Evidence After")
+
+        _add_signature_block(elements, styles, nama_ttd)
+        elements.append(PageBreak())
+
+    if elements and isinstance(elements[-1], PageBreak):
+        elements.pop()
+    doc.build(elements)
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
+
+
+# ================= PDF REPORT RTPM =================
+
+def create_rtpm_pdf_report(data_list, bulan_nama, tahun):
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=20, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    # Style khusus untuk judul + periode dalam satu baris
+    styles.add(ParagraphStyle(
+        name='RTPMTitle',
+        alignment=TA_CENTER,
+        fontSize=14,
+        leading=18,
+        spaceAfter=12,
+        textColor=colors.HexColor('#2C3E50'),
+        fontName='Helvetica-Bold'
+    ))
+
+    elements = []
+    for item in data_list:
+        _add_kop_surat(elements, styles)
+
+        # Judul dan periode dalam satu baris
+        title_text = f"<b>LAPORAN RTPM</b> &nbsp; Periode: {bulan_nama} {tahun}"
+        elements.append(Paragraph(title_text, styles['RTPMTitle']))
+
+        pelaksanaan = item.get('rtpm_pelaksanaan', [])
+        p = pelaksanaan[0] if pelaksanaan else {}
+        pelaksana = p.get('pelaksana', '') if p else ''
+        if not pelaksana or pelaksana == '-' or pd.isna(pelaksana):
+            ttd_name = '__________________________'
+        else:
+            ttd_name = pelaksana
+
+        data_pairs = [
+            ["Equipment", str(item.get('equipment', '-'))],
+            ["Aktivitas", str(item.get('activity', '-'))],
+            ["Area", str(item.get('area', '-'))],
+            ["Tanggal Jadwal", str(item.get('tanggal', '-'))],
+            ["Status", str(item.get('status', '-'))],
+            ["Pelaksana", pelaksana if pelaksana else '-'],
+            ["Catatan", Paragraph(str(p.get('catatan', '')).replace('\n', '<br/>'), styles['Normal'])],
+        ]
+        _add_vertical_detail_table(elements, styles, data_pairs)
+
+        evidence_url = p.get('evidence_url') if p else None
+        if evidence_url:
+            _add_evidence_images(elements, styles, [evidence_url])
+
+        _add_signature_block(elements, styles, ttd_name)
+        elements.append(PageBreak())
+
+    if elements and isinstance(elements[-1], PageBreak):
+        elements.pop()
+    doc.build(elements)
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
+
+
+# ================= PDF REPORT PTW =================
+
+def create_ptw_pdf_report(data_list):
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=20, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='TitleCenter', alignment=TA_CENTER, fontSize=14, leading=20, spaceAfter=10, textColor=colors.HexColor('#2C3E50')))
+
+    elements = []
+    for item in data_list:
+        _add_kop_surat(elements, styles)
+
+        elements.append(Paragraph("<b>LAPORAN PERMIT TO WORK (PTW)</b>", styles['TitleCenter']))
+        elements.append(Spacer(1, 12))
+
+        pelaksana = str(item.get('pelaksana', '-'))
+        if pd.isna(pelaksana) or not pelaksana.strip() or pelaksana == '-':
+            ttd_name = '__________________________'
+        else:
+            ttd_name = pelaksana
+
+        checklist = item.get('checklist', [])
+        if isinstance(checklist, list):
+            checklist_text = ", ".join(checklist)
+        else:
+            checklist_text = str(checklist)
+
+        data_pairs = [
+            ["Nomor PTW", str(item.get('nomor_ptw', '-'))],
+            ["Nomor WO", str(item.get('no_wo', '-'))],
+            ["Tanggal Terbit", str(item.get('tanggal_terbit', '-'))],
+            ["Nama Pekerjaan", str(item.get('nama_pekerjaan', '-'))],
+            ["Area", str(item.get('area', '-'))],
+            ["Peralatan", str(item.get('peralatan', '-'))],
+            ["Pelaksana", pelaksana],
+            ["Status", str(item.get('status', '-'))],
+            ["Checklist", Paragraph(checklist_text, styles['Normal'])],
+            ["Keterangan", Paragraph(str(item.get('keterangan', '')).replace('\n', '<br/>'), styles['Normal'])],
+        ]
+        _add_vertical_detail_table(elements, styles, data_pairs)
+
+        urls = []
+        if item.get('bukti_isolasi'):
+            urls.append(item['bukti_isolasi'])
+        if item.get('bukti_release'):
+            urls.append(item['bukti_release'])
+        if urls:
+            _add_evidence_images(elements, styles, urls[:2], label1="Bukti Isolasi", label2="Bukti Release")
+
+        _add_signature_block(elements, styles, ttd_name)
+        elements.append(PageBreak())
+
+    if elements and isinstance(elements[-1], PageBreak):
+        elements.pop()
+    doc.build(elements)
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
+
+
+# ================= TELEGRAM NOTIFICATIONS =================
+
+def send_telegram_notification(ticket_id, area, description, personnel, sr_number, image_url=None, nama_peralatan=None):
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8507107791:AAFd8BKfsMGZCzS7UctwNlWRiPipe45TkGE")
+    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003701349665")
+    waktu_sekarang = (timezone.now() + timedelta(hours=7)).strftime('%d-%m-%Y %H:%M:%S')
+    alat_info = f"*Peralatan:* {nama_peralatan}\n" if nama_peralatan else ""
+    caption = (
+        f"🚨 *NOTIFIKASI SR BARU* 🚨\n\n"
+        f"*ID Tiket:* `{ticket_id}`\n"
+        f"*Nomor SR:* `{sr_number}`\n"
+        f"*Tanggal Laporan:* `{waktu_sekarang}`\n"
+        f"*Area:* {area}\n"
+        f"{alat_info}"
+        f"*Pelaksana:* {personnel}\n"
+        f"*Keterangan:* {description}\n\n"
+        f"🛠️ _Mohon segera ditindaklanjuti._"
+    )
+    if image_url:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        payload = {"chat_id": CHAT_ID, "photo": image_url, "caption": caption, "parse_mode": "Markdown"}
+    else:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": caption, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Telegram Error: {e}")
+
+
+def send_telegram_completion_notification(ticket_id, area, description, personnel, sr_number, image_url=None, nama_peralatan=None):
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8507107791:AAFd8BKfsMGZCzS7UctwNlWRiPipe45TkGE")
+    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003701349665")
+    waktu_sekarang = (timezone.now() + timedelta(hours=7)).strftime('%d-%m-%Y %H:%M:%S')
+    alat_info = f"*Peralatan:* {nama_peralatan}\n" if nama_peralatan else ""
+    caption = (
+        f"✅ *PEKERJAAN CORRECTIVE SELESAI* ✅\n\n"
+        f"*ID Tiket:* `{ticket_id}`\n"
+        f"*Nomor SR:* `{sr_number}`\n"
+        f"*Tanggal Selesai:* `{waktu_sekarang}`\n"
+        f"*Area:* {area}\n"
+        f"{alat_info}"
+        f"*Pelaksana:* {personnel}\n"
+        f"*Keterangan:* {description}\n\n"
+        f"📸 _Foto hasil pekerjaan telah diupload._"
+    )
+    if image_url:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        payload = {"chat_id": CHAT_ID, "photo": image_url, "caption": caption, "parse_mode": "Markdown"}
+    else:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": caption, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Telegram Completion Error: {e}")
+
+
+
+
+# ================= MODULE MONITORING PEKERJAAN (JOBS) =================
+
+@login_required(login_url='/login/')
+def input_pekerjaan(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    if request.method == "POST":
+        tanggal = request.POST.get('tanggal', '')
+        jenis = request.POST.get('jenis', '')
+        area = request.POST.get('area', '')
+        nama_peralatan = request.POST.get('nama_peralatan', '')
+        nomor_sr = request.POST.get('nomor_sr', '')
+        nama_pelaksana = request.POST.get('nama_pelaksana', '')
+        status = request.POST.get('status', 'Open')
+        keterangan = request.POST.get('keterangan', '')
+
+        prefix = "CM" if "Corrective" in jenis else "FLM"
+        new_id = f"{prefix}-{str(uuid.uuid4())[:4].upper()}"
+
+        evidance_file = request.FILES.get('evidance')
+        evidance_url = ""
+        if evidance_file:
+            file_name = f"uji_coba/{uuid.uuid4()}.jpeg"
+            try:
+                supabase.storage.from_("evidences").upload(
+                    path=file_name, file=evidance_file.read(),
+                    file_options={"content-type": evidance_file.content_type}
+                )
+                evidance_url = supabase.storage.from_("evidences").get_public_url(file_name)
+            except Exception as e:
+                logger.error("Upload gambar before gagal:", e)
+                messages.error(request, "Gagal mengupload gambar before.")
+
+        evidance_after_file = request.FILES.get('evidance_after')
+        evidance_after_url = ""
+        if evidance_after_file:
+            file_name_after = f"uji_coba/{uuid.uuid4()}_after.jpeg"
+            try:
+                supabase.storage.from_("evidences").upload(
+                    path=file_name_after, file=evidance_after_file.read(),
+                    file_options={"content-type": evidance_after_file.content_type}
+                )
+                evidance_after_url = supabase.storage.from_("evidences").get_public_url(file_name_after)
+            except Exception as e:
+                logger.error("Upload gambar after gagal:", e)
+                messages.error(request, "Gagal mengupload gambar after.")
+
+        try:
+            supabase.table("jobs").insert({
+                "ID": new_id,
+                "Tanggal": tanggal if tanggal else None,
+                "Jenis": jenis,
+                "Area": area,
+                "nama_peralatan": nama_peralatan,
+                "Nomor SR": nomor_sr,
+                "Nama Pelaksana": nama_pelaksana,
+                "Status": status,
+                "Keterangan": keterangan,
+                "Evidance": evidance_url,
+                "Evidance After": evidance_after_url
+            }).execute()
+
+            if "Corrective" in jenis:
+                send_telegram_notification(new_id, area, keterangan, nama_pelaksana, nomor_sr, evidance_url, nama_peralatan)
+                analyze_predictive_maintenance(current_job_id=new_id)
+
+            messages.success(request, "Data pekerjaan berhasil disimpan.")
+            return redirect('daftar_pekerjaan')
+        except Exception as e:
+            logger.error(f"Gagal menyimpan data pekerjaan: {e}")
+            messages.error(request, "Gagal menyimpan data.")
+            return redirect('input_pekerjaan')
+
+    try:
+        data_personel = supabase.table("personel").select("*").order("nama").execute().data
+    except:
+        data_personel = []
+    return render(request, 'core/input_pekerjaan.html', {'daftar_personel': data_personel})
+
+
+@login_required(login_url='/login/')
+def daftar_pekerjaan(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    filter_jenis = request.GET.get('filter_jenis', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    search_sr = request.GET.get('search_sr', '')
+
+    try:
+        query = supabase.table("jobs").select("*")
+        if filter_jenis:
+            query = query.eq("Jenis", filter_jenis)
+        if start_date:
+            query = query.gte("Tanggal", start_date)
+        if end_date:
+            query = query.lte("Tanggal", end_date)
+        if search_sr:
+            query = query.ilike("Nomor SR", f"%{search_sr}%")
+
+        response = query.order("Tanggal", desc=True).limit(100).execute()
+        data_pekerjaan = response.data
+
+        for job in data_pekerjaan:
+            if job.get('Tanggal'):
+                try:
+                    raw_tgl = job['Tanggal']
+                    if 'T' in raw_tgl:
+                        tgl_str = raw_tgl.split('T')[0]
+                    else:
+                        tgl_str = raw_tgl
+                    tgl_obj = datetime.strptime(tgl_str, '%Y-%m-%d')
+                    job['tgl_display'] = tgl_obj.strftime('%d-%m-%Y')
+                except:
+                    job['tgl_display'] = job['Tanggal']
+            else:
+                job['tgl_display'] = '-'
+
+            job['nomor_sr'] = job.get('Nomor SR', '-')
+            job['nama_pelaksana'] = job.get('Nama Pelaksana', '-')
+            job['evidance_after'] = job.get('Evidance After', '')
+    except Exception as e:
+        logger.error(f"Error ambil daftar pekerjaan: {e}")
+        data_pekerjaan = []
+
+    context = {
+        'semua_pekerjaan': data_pekerjaan,
+        'filter_jenis': filter_jenis,
+        'start_date': start_date,
+        'end_date': end_date,
+        'search_sr': search_sr
+    }
+    return render(request, 'core/daftar_pekerjaan.html', context)
+
+
+@login_required(login_url='/login/')
+def export_pekerjaan(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    format_file = request.GET.get('format', 'excel')
+    filter_jenis = request.GET.get('filter_jenis', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    search_sr = request.GET.get('search_sr', '')
+
+    try:
+        query = supabase.table("jobs").select("*")
+        if filter_jenis:
+            query = query.eq("Jenis", filter_jenis)
+        if start_date:
+            query = query.gte("Tanggal", start_date)
+        if end_date:
+            query = query.lte("Tanggal", end_date)
+        if search_sr:
+            query = query.ilike("Nomor SR", f"%{search_sr}%")
+
+        data = query.order("Tanggal", desc=True).execute().data
+    except Exception as e:
+        logger.error(f"Gagal ambil data export: {e}")
+        return HttpResponse("Gagal mengambil data.")
+
+    if not data:
+        return HttpResponse("Tidak ada data.")
+
+    df = pd.DataFrame(data)
+    waktu_skrg = datetime.now().strftime("%d-%m-%Y")
+
+    if format_file == 'excel':
+        if 'Tanggal' in df.columns:
+            df['Tanggal'] = pd.to_datetime(df['Tanggal']).dt.strftime('%d/%m/%Y')
+        kolom = [k for k in ['Tanggal', 'Nomor SR', 'Area', 'nama_peralatan', 'Keterangan', 'Jenis', 'Nama Pelaksana', 'Status'] if k in df.columns]
+        df_excel = df[kolom].copy()
+        df_excel.rename(columns={'nama_peralatan': 'Peralatan', 'Nama Pelaksana': 'Pelaksana'}, inplace=True)
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="Export_Pekerjaan_{waktu_skrg}.xlsx"'
+        with pd.ExcelWriter(response, engine='xlsxwriter') as writer:
+            df_excel.to_excel(writer, index=False, sheet_name='Pekerjaan', startrow=2)
+            workbook = writer.book
+            worksheet = writer.sheets['Pekerjaan']
+            # Tambahkan logo lebih kecil
+            logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo_pln1.png')
+            if os.path.exists(logo_path):
+                worksheet.insert_image('A1', logo_path, {'x_scale': 0.4, 'y_scale': 0.4})
+            # Terapkan border ke seluruh tabel
+            border_format = workbook.add_format({'border': 1})
+            worksheet.conditional_format(2, 0, len(df_excel)+1, len(df_excel.columns)-1,
+                                         {'type': 'no_blanks', 'format': border_format})
+            worksheet.conditional_format(2, 0, len(df_excel)+1, len(df_excel.columns)-1,
+                                         {'type': 'blanks', 'format': border_format})
+        return response
+
+    elif format_file == 'pdf':
+        try:
+            pdf_bytes = create_pdf_report(df, filter_jenis)
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="Laporan_Pekerjaan_{waktu_skrg}.pdf"'
+            return response
+        except Exception as e:
+            logger.error(f"Error membuat PDF pekerjaan: {e}")
+            return HttpResponse("Gagal membuat PDF.")
+    return HttpResponse("Format tidak dikenal.")
+
+
+@login_required(login_url='/login/')
+def hapus_pekerjaan(request, id):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+    try:
+        supabase.table("jobs").delete().eq("ID", id).execute()
+        messages.success(request, "Pekerjaan berhasil dihapus.")
+    except Exception as e:
+        logger.error(f"Error hapus pekerjaan: {e}")
+        messages.error(request, "Gagal menghapus.")
+    return redirect('daftar_pekerjaan')
+
+
+@login_required(login_url='/login/')
+def update_pekerjaan(request, id):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    if request.method == "POST":
+        evidance_after_file = request.FILES.get('evidance_after')
+        if not evidance_after_file:
+            messages.error(request, "File foto after tidak boleh kosong.")
+            return redirect('daftar_pekerjaan')
+
+        try:
+            job_response = supabase.table("jobs").select("*").eq("ID", id).execute()
+            if not job_response.data:
+                messages.error(request, "Data pekerjaan tidak ditemukan.")
+                return redirect('daftar_pekerjaan')
+            job_data = job_response.data[0]
+
+            file_name_after = f"uji_coba/{uuid.uuid4()}_after.jpeg"
+            supabase.storage.from_("evidences").upload(
+                path=file_name_after, file=evidance_after_file.read(),
+                file_options={"content-type": evidance_after_file.content_type}
+            )
+            evidance_after_url = supabase.storage.from_("evidences").get_public_url(file_name_after)
+
+            supabase.table("jobs").update({
+                "Status": "Finish",
+                "Evidance After": evidance_after_url
+            }).eq("ID", id).execute()
+
+            messages.success(request, "Pekerjaan berhasil diselesaikan.")
+            if "Corrective" in job_data.get('Jenis', ''):
+                send_telegram_completion_notification(
+                    ticket_id=id,
+                    area=job_data.get('Area', ''),
+                    description=job_data.get('Keterangan', ''),
+                    personnel=job_data.get('Nama Pelaksana', ''),
+                    sr_number=job_data.get('Nomor SR', ''),
+                    image_url=evidance_after_url,
+                    nama_peralatan=job_data.get('nama_peralatan', '')
+                )
+            return redirect('daftar_pekerjaan')
+        except Exception as e:
+            logger.error(f"Error update pekerjaan: {e}")
+            messages.error(request, "Gagal update data.")
+    return redirect('daftar_pekerjaan')
+
+
+# ================= MODULE DASHBOARD & PREDICTIVE =================
+# =========================
+# NORMALISASI NAMA JENIS PEKERJAAN
+# FIR -> FLM
+# COR -> CM
+# PRE -> PM
+# =========================
+def normalize_jenis(value):
+    if not value:
+        return "Lainnya"
+
+    text = str(value).strip().lower()
+
+    # First Line Maintenance
+    if (
+        "first line maintenance" in text
+        or text == "fir"
+        or text.startswith("fir ")
+        or "( d )" in text
+    ):
+        return "FLM"
+
+    # Corrective Maintenance
+    if (
+        "corrective maintenance" in text
+        or text == "cor"
+        or text.startswith("cor ")
+    ):
+        return "CM"
+
+    # Predictive Maintenance
+    if (
+        "predictive maintenance" in text
+        or text == "pre"
+        or text.startswith("pre ")
+    ):
+        return "PM"
+
+    return str(value).strip()
+
+@login_required
+def dashboard_utama(request):
+    import json
+    from collections import Counter, defaultdict
+    from django.db.models import Count
+    from django.db.models.functions import TruncMonth
+    from core.models import Pekerjaan
+
+    # =========================
+    # FILTER
+    # =========================
+    f_start = request.GET.get('start_date', '')
+    f_end = request.GET.get('end_date', '')
+    f_jenis = request.GET.get('filter_jenis', '')
+
+    # =========================
+    # QUERY DASAR
+    # =========================
+    queryset = Pekerjaan.objects.select_related('eksekutor').all()
+
+    # FILTER TANGGAL
+    if f_start:
+        queryset = queryset.filter(waktu_lapor__date__gte=f_start)
+
+    if f_end:
+        queryset = queryset.filter(waktu_lapor__date__lte=f_end)
+
+    # FILTER JENIS
+    if f_jenis:
+        queryset = queryset.filter(
+            jenis_pekerjaan=f_jenis
+        )
+    # =========================
+    # TOTAL DATA
+    # =========================
+    total_pekerjaan = queryset.count()
+
+    # =========================
+    # PIE CHART
+    # =========================
+    rekap_jenis = Counter()
+
+    for item in queryset:
+
+        jenis = item.jenis_pekerjaan or 'Tidak Diketahui'
+
+        # Normalisasi tampilan
+        if 'a' in jenis.lower():
+            jenis = 'FLM A'
+
+        elif 'b' in jenis.lower():
+            jenis = 'FLM B'
+
+        elif 'c' in jenis.lower():
+            jenis = 'FLM C'
+
+        elif 'd' in jenis.lower():
+            jenis = 'FLM D'
+
+        elif 'corrective' in jenis.lower():
+            jenis = 'Corrective'
+
+        elif 'preventive' in jenis.lower():
+            jenis = 'Preventive'
+
+        rekap_jenis[jenis] += 1
+
+    labels_jenis = list(rekap_jenis.keys())
+    data_jenis = list(rekap_jenis.values())
+
+    # =========================
+    # BAR CHART AREA
+    # =========================
+    rekap_area = Counter()
+
+    for item in queryset:
+
+        area = item.area or 'Lainnya'
+
+        rekap_area[area] += 1
+
+    top_area = dict(
+        sorted(
+            rekap_area.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:20]
+    )
+
+    labels_area = list(top_area.keys())
+    data_area = list(top_area.values())
+
+    # =========================
+    # LEADERBOARD
+    # =========================
+    leaderboard = {
+        'A': [],
+        'B': [],
+        'C': [],
+        'D': [],
+    }
+
+    leaderboard_count = {
+        'A': defaultdict(int),
+        'B': defaultdict(int),
+        'C': defaultdict(int),
+        'D': defaultdict(int),
+    }
+
+    for item in queryset:
+
+        if not item.eksekutor:
+            continue
+
+        jenis = str(item.jenis_pekerjaan or '').lower()
+        nama = str(item.eksekutor.nama or '').strip()
+        regu = str(item.eksekutor.regu or '').strip()
+
+        if not nama:
+            continue
+
+        # =========================
+        # REGU A
+        # =========================
+        if 'a' in jenis and regu == 'Produksi A':
+            leaderboard_count['A'][nama] += 1
+
+        # =========================
+        # REGU B
+        # =========================
+        elif 'b' in jenis and regu == 'Produksi B':
+            leaderboard_count['B'][nama] += 1
+
+        # =========================
+        # REGU C
+        # =========================
+        elif 'c' in jenis and regu == 'Produksi C':
+            leaderboard_count['C'][nama] += 1
+
+        # =========================
+        # REGU D
+        # =========================
+        elif 'd' in jenis and regu == 'Produksi D':
+            leaderboard_count['D'][nama] += 1
+
+    for regu in leaderboard_count:
+
+        sorted_items = sorted(
+            leaderboard_count[regu].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+
+        leaderboard[regu] = [
+            {
+                'nama': nama,
+                'jumlah': jumlah
+            }
+            for nama, jumlah in sorted_items
+        ]
+
+    # =========================
+    # TREND DATA
+    # =========================
+    trend_queryset = (
+        queryset
+        .exclude(waktu_lapor__isnull=True)
+        .annotate(bulan=TruncMonth('waktu_lapor'))
+        .values('bulan', 'jenis_pekerjaan')
+        .annotate(total=Count('id'))
+        .order_by('bulan')
+    )
+
+    bulan_objects = []
+    jenis_set = set()
+
+    for row in trend_queryset:
+
+        if row['bulan']:
+
+            bulan_objects.append(row['bulan'])
+
+            jenis_set.add(row['jenis_pekerjaan'])
+
+    bulan_objects = sorted(list(set(bulan_objects)))
+
+    labels = [
+        bulan.strftime('%b %Y')
+        for bulan in bulan_objects
+    ]
+
+    trend_map = {
+        jenis: [0 for _ in labels]
+        for jenis in jenis_set
+    }
+
+    for row in trend_queryset:
+
+        if not row['bulan']:
+            continue
+
+        label = row['bulan'].strftime('%b %Y')
+
+        jenis = row['jenis_pekerjaan']
+
+        idx = labels.index(label)
+
+        trend_map[jenis][idx] += row['total']
+
+    colors = [
+        '#0059A3',
+        '#FFD100',
+        '#00AEEF',
+        '#1D6F42',
+        '#FF8C00',
+        '#8e44ad',
+    ]
+
+    datasets = []
+
+    for i, (jenis, values) in enumerate(trend_map.items()):
+
+        datasets.append({
+            'label': jenis,
+            'data': values,
+            'borderColor': colors[i % len(colors)],
+            'backgroundColor': colors[i % len(colors)],
+            'fill': False,
+            'tension': 0.3,
+        })
+
+    trend_data = {
+        'labels': labels,
+        'datasets': datasets,
+    }
+
+    # =========================
+    # CONTEXT
+    # =========================
+    context = {
+
+        # FILTER
+        'start_date': f_start,
+        'end_date': f_end,
+        'filter_jenis': f_jenis,
+
+        # TOTAL
+        'total_pekerjaan': total_pekerjaan,
+
+        # PIE
+        'labels_jenis': json.dumps(labels_jenis),
+        'data_jenis': json.dumps(data_jenis),
+
+        # BAR
+        'labels_area': json.dumps(labels_area),
+        'data_area': json.dumps(data_area),
+
+        # LEADERBOARD
+        'leaderboard': leaderboard,
+
+        # TREND
+        'trend_data': json.dumps(trend_data),
+    }
+
+    return render(
+        request,
+        'core/dashboard.html',
+        context
+    )
+
+def send_predictive_alert(area, equipment, total_gangguan, tanggal_terakhir):
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8507107791:AAFd8BKfsMGZCzS7UctwNlWRiPipe45TkGE")
+    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003701349665")
+    
+    tgl_str = tanggal_terakhir.strftime('%d-%m-%Y')
+    
+    pesan = (
+        f"🚨 *PREDIKTIF ALARM (REPEATED FAILURE)* 🚨\n\n"
+        f"Terdeteksi kerusakan berulang pada peralatan berikut:\n"
+        f"🛠️ Peralatan: *{equipment}*\n"
+        f"📍 Area: *{area}*\n"
+        f"⚠️ Total Kerusakan: *{total_gangguan} kali* (30 hari terakhir).\n"
+        f"📅 Terakhir Rusak: *{tgl_str}*\n\n"
+        f"💡 *Rekomendasi:* Cek riwayat perbaikan alat ini. Mungkin diperlukan penggantian sparepart total atau Root Cause Analysis (RCA)."
+    )
+    
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": CHAT_ID, "text": pesan, "parse_mode": "Markdown"}, timeout=10)
+    except Exception as e:
+        logger.error(f"Gagal kirim alarm prediktif: {e}")
+
+
+def analyze_predictive_maintenance(current_job_id=None):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+    
+    try:
+        response = supabase.table("jobs").select("*").execute()
+        df = pd.DataFrame(response.data)
+    except Exception as e:
+        logger.error(f"Gagal ambil data untuk analisis prediktif: {e}")
+        return
+    
+    if df.empty or current_job_id is None:
+        return
+
+    df_cm = df[df['Jenis'] == 'Corrective Maintenance'].copy()
+    if len(df_cm) < 3:
+        return
+
+    col_name = 'nama_peralatan'
+    if col_name not in df_cm.columns:
+        return
+
+    df_cm = df_cm[df_cm[col_name].notna() & (df_cm[col_name] != '')]
+    if 'Tanggal' in df_cm.columns:
+        df_cm['Tanggal'] = pd.to_datetime(df_cm['Tanggal']).dt.tz_localize(None)
+    else:
+        return
+
+    df_cm = df_cm.sort_values('Tanggal', ascending=False)
+    last_30_days = datetime.now() - timedelta(days=30)
+    recent_data = df_cm[df_cm['Tanggal'] >= last_30_days]
+
+    if recent_data.empty:
+        return
+
+    summary = recent_data.groupby(['Area', col_name]).size().reset_index(name='Jumlah')
+    THRESHOLD = 3
+
+    for _, row in summary.iterrows():
+        if row['Jumlah'] >= THRESHOLD:
+            mask = (recent_data['Area'] == row['Area']) & (recent_data[col_name] == row[col_name])
+            data_alat = recent_data[mask].copy()
+
+            if current_job_id in data_alat['ID'].tolist():
+                if len(data_alat) >= 2:
+                    tgl_terbaru = data_alat.iloc[0]['Tanggal']
+                    tgl_sebelumnya = data_alat.iloc[1]['Tanggal']
+                    selisih = tgl_terbaru - tgl_sebelumnya
+                    if selisih < timedelta(hours=24):
+                        logger.info(f"Cooldown aktif untuk {row[col_name]}, selisih {selisih}")
+                        continue
+
+                send_predictive_alert(row['Area'], row[col_name], row['Jumlah'], data_alat.iloc[0]['Tanggal'])
+
+
+# ================= MODULE PTW =================
+
+@login_required(login_url='/login/')
+def ptw_list(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    status_filter = request.GET.get('status', '')
+    area_filter = request.GET.get('area', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    try:
+        query = supabase.table("ptw").select("*")
+        if status_filter:
+            query = query.eq("status", status_filter)
+        if area_filter:
+            query = query.eq("area", area_filter)
+        if start_date:
+            query = query.gte("tanggal_terbit", start_date)
+        if end_date:
+            query = query.lte("tanggal_terbit", end_date)
+
+        response = query.order("tanggal_terbit", desc=True).execute()
+        data_ptw = response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error ambil data PTW: {e}")
+        data_ptw = []
+
+    for item in data_ptw:
+        if item.get('tanggal_terbit'):
+            try:
+                tgl = datetime.strptime(item['tanggal_terbit'], '%Y-%m-%d')
+                item['tanggal_display'] = tgl.strftime('%d-%m-%Y')
+            except:
+                item['tanggal_display'] = item['tanggal_terbit']
+        else:
+            item['tanggal_display'] = '-'
+
+        checklist = item.get('checklist', [])
+        if isinstance(checklist, list):
+            item['checklist_display'] = checklist
+        elif isinstance(checklist, str):
+            item['checklist'] = [c.strip() for c in checklist.split(',') if c.strip()]
+        else:
+            item['checklist'] = []
+
+    context = {
+        'daftar_ptw': data_ptw,
+        'status_filter': status_filter,
+        'area_filter': area_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+    }
+    return render(request, 'core/ptw.html', context)
+
+
+@login_required(login_url='/login/')
+def ptw_tambah(request):
+    if request.method == "POST":
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        supabase = create_client(url, key)
+
+        nomor_ptw = request.POST.get('nomor_ptw', '').strip()
+        no_wo = request.POST.get('no_wo', '').strip()
+        tanggal_terbit = request.POST.get('tanggal_terbit', '')
+        nama_pekerjaan = request.POST.get('nama_pekerjaan', '').strip()
+        area = request.POST.get('area', '')
+        peralatan = request.POST.get('peralatan', '').strip()
+        pelaksana = request.POST.get('pelaksana', '').strip()
+        checklist = request.POST.getlist('checklist[]')
+        keterangan = request.POST.get('keterangan', '').strip()
+        status = request.POST.get('status', 'Open')
+
+        bukti_isolasi_url = ""
+        bukti_file = request.FILES.get('bukti_isolasi')
+        if bukti_file:
+            try:
+                file_name = f"ptw/{uuid.uuid4()}.jpeg"
+                supabase.storage.from_("evidences").upload(
+                    path=file_name,
+                    file=bukti_file.read(),
+                    file_options={"content-type": bukti_file.content_type}
+                )
+                bukti_isolasi_url = supabase.storage.from_("evidences").get_public_url(file_name)
+            except Exception as e:
+                logger.error(f"Error upload bukti isolasi: {e}")
+                messages.error(request, "Gagal mengupload bukti isolasi, tetapi data tetap disimpan.")
+
+        try:
+            supabase.table("ptw").insert({
+                "nomor_ptw": nomor_ptw,
+                "no_wo": no_wo,
+                "tanggal_terbit": tanggal_terbit,
+                "nama_pekerjaan": nama_pekerjaan,
+                "area": area,
+                "peralatan": peralatan,
+                "pelaksana": pelaksana,
+                "checklist": checklist,
+                "keterangan": keterangan,
+                "bukti_isolasi": bukti_isolasi_url,
+                "status": status,
+            }).execute()
+            messages.success(request, "PTW berhasil disimpan.")
+        except Exception as e:
+            logger.error(f"Gagal menyimpan PTW: {e}")
+            messages.error(request, f"Gagal menyimpan PTW: {e}")
+
+        return redirect('ptw_list')
+    return redirect('ptw_list')
+
+
+@login_required(login_url='/login/')
+def ptw_hapus(request, id):
+    if request.method == "POST":
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        supabase = create_client(url, key)
+        try:
+            supabase.table("ptw").delete().eq("id", id).execute()
+            messages.success(request, "PTW berhasil dihapus.")
+        except Exception as e:
+            logger.error(f"Error hapus PTW: {e}")
+            messages.error(request, "Gagal menghapus PTW.")
+        return redirect('ptw_list')
+    return redirect('ptw_list')
+
+
+@login_required(login_url='/login/')
+def ptw_selesai(request, id):
+    if request.method == "POST":
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        supabase = create_client(url, key)
+
+        bukti_release_url = ""
+        bukti_file = request.FILES.get('bukti_release')
+        if bukti_file:
+            try:
+                file_name = f"ptw_release/{uuid.uuid4()}.jpeg"
+                supabase.storage.from_("evidences").upload(
+                    path=file_name,
+                    file=bukti_file.read(),
+                    file_options={"content-type": bukti_file.content_type}
+                )
+                bukti_release_url = supabase.storage.from_("evidences").get_public_url(file_name)
+            except Exception as e:
+                logger.error(f"Error upload bukti release: {e}")
+                messages.error(request, "Gagal mengupload bukti release.")
+                return redirect('ptw_list')
+
+        try:
+            supabase.table("ptw").update({
+                "status": "Closed",
+                "bukti_release": bukti_release_url
+            }).eq("id", id).execute()
+            messages.success(request, "PTW telah diselesaikan dan bukti release tersimpan.")
+        except Exception as e:
+            logger.error(f"Gagal menyelesaikan PTW: {e}")
+            messages.error(request, "Gagal menyelesaikan PTW.")
+        return redirect('ptw_list')
+    return redirect('ptw_list')
+
+
+@login_required(login_url='/login/')
+def ptw_export_excel(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    status_filter = request.GET.get('status', '')
+    area_filter = request.GET.get('area', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    try:
+        query = supabase.table("ptw").select("*")
+        if status_filter:
+            query = query.eq("status", status_filter)
+        if area_filter:
+            query = query.eq("area", area_filter)
+        if start_date:
+            query = query.gte("tanggal_terbit", start_date)
+        if end_date:
+            query = query.lte("tanggal_terbit", end_date)
+
+        data = query.order("tanggal_terbit", desc=True).execute().data
+    except Exception as e:
+        logger.error(f"Export PTW Excel gagal: {e}")
+        return HttpResponse("Gagal mengambil data.")
+
+    rows = []
+    for item in data:
+        checklist = item.get('checklist', [])
+        if isinstance(checklist, list):
+            checklist_str = ", ".join(checklist)
+        else:
+            checklist_str = str(checklist)
+        rows.append({
+            'No. PTW': item.get('nomor_ptw'),
+            'No. WO': item.get('no_wo'),
+            'Tanggal': item.get('tanggal_terbit'),
+            'Pekerjaan': item.get('nama_pekerjaan'),
+            'Area': item.get('area'),
+            'Peralatan': item.get('peralatan'),
+            'Pelaksana': item.get('pelaksana'),
+            'Checklist': checklist_str,
+            'Keterangan': item.get('keterangan'),
+            'Status': item.get('status'),
+        })
+
+    df = pd.DataFrame(rows)
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="PTW_{date.today()}.xlsx"'
+    with pd.ExcelWriter(response, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='PTW', startrow=2)
+        workbook = writer.book
+        worksheet = writer.sheets['PTW']
+        logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo_pln1.png')
+        if os.path.exists(logo_path):
+            worksheet.insert_image('A1', logo_path, {'x_scale': 0.4, 'y_scale': 0.4})
+        border_format = workbook.add_format({'border': 1})
+        worksheet.conditional_format(2, 0, len(df)+1, len(df.columns)-1,
+                                     {'type': 'no_blanks', 'format': border_format})
+        worksheet.conditional_format(2, 0, len(df)+1, len(df.columns)-1,
+                                     {'type': 'blanks', 'format': border_format})
+    return response
+
+
+@login_required(login_url='/login/')
+def ptw_export_pdf(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    status_filter = request.GET.get('status', '')
+    area_filter = request.GET.get('area', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    try:
+        query = supabase.table("ptw").select("*")
+        if status_filter:
+            query = query.eq("status", status_filter)
+        if area_filter:
+            query = query.eq("area", area_filter)
+        if start_date:
+            query = query.gte("tanggal_terbit", start_date)
+        if end_date:
+            query = query.lte("tanggal_terbit", end_date)
+
+        data = query.order("tanggal_terbit", desc=True).execute().data
+    except Exception as e:
+        logger.error(f"Export PTW PDF gagal: {e}")
+        return HttpResponse("Gagal mengambil data.")
+
+    if not data:
+        return HttpResponse("Tidak ada data.")
+
+    pdf_bytes = create_ptw_pdf_report(data)
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="Laporan_PTW_{date.today()}.pdf"'
+    return response
+
+
+# ================= MODULE STRUKTUR ORGANISASI =================
+
+@login_required(login_url='/login/')
+def struktur_organisasi(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    selected_date = request.GET.get('tanggal', date.today().isoformat())
+
+    try:
+        response_absensi = supabase.table("absensi") \
+            .select("nama_personel, status_absensi") \
+            .eq("tanggal", selected_date) \
+            .eq("status_absensi", "Hadir") \
+            .execute()
+        hadir_list = [item['nama_personel'] for item in response_absensi.data]
+    except Exception as e:
+        logger.error(f"Error ambil absensi: {e}")
+        hadir_list = []
+
+    try:
+        response_personel = supabase.table("personel") \
+            .select("nama, jabatan") \
+            .execute()
+        semua_personel = response_personel.data
+    except Exception as e:
+        logger.error(f"Error ambil personel: {e}")
+        semua_personel = []
+
+    person_by_jabatan = {}
+    for p in semua_personel:
+        jab = p.get('jabatan') or 'Tanpa Jabatan'
+        if jab not in person_by_jabatan:
+            person_by_jabatan[jab] = []
+        person_by_jabatan[jab].append({
+            'nama': p['nama'],
+            'hadir': p['nama'] in hadir_list
+        })
+
+    positions = []
+    positions.append({'nama': 'Manager', 'level': 0})
+    positions.append({'nama': 'Asmen Operasi & Pemeliharaan', 'level': 1})
+
+    for letter in ['A', 'B', 'C', 'D']:
+        positions.append({'nama': f'Team Leader Produksi {letter}', 'level': 2})
+        for base_name, _ in [('Technician CCR', 5), ('Operator Lokal Boiler', 3), ('Operator Lokal Turbine', 3),
+                             ('Operator WTP', 2), ('Operator CHCB', 6), ('Operator Alat Berat', 3)]:
+            positions.append({'nama': f'{base_name} {letter}', 'level': 3})
+
+    for leader in ['Team Leader Rendal Operasi & Pemeliharaan',
+                   'Team Leader Pemeliharaan Konin', 'Team Leader Pemeliharaan Listrik',
+                   'Team Leader Pemeliharaan Mekanik', 'Team Leader Kimia & Lingkungan']:
+        positions.append({'nama': leader, 'level': 2})
+
+    struktur = []
+    for pos in positions:
+        persons = person_by_jabatan.get(pos['nama'], [])
+        struktur.append({
+            'nama': pos['nama'],
+            'level': pos['level'],
+            'persons': persons,
+            'count': len(persons)
+        })
+
+    for jab, persons in person_by_jabatan.items():
+        if jab not in [p['nama'] for p in positions]:
+            struktur.append({
+                'nama': jab,
+                'level': 0,
+                'persons': persons,
+                'count': len(persons)
+            })
+
+    context = {
+        'struktur': struktur,
+        'selected_date': selected_date,
+        'total_hadir': len(hadir_list),
+    }
+    return render(request, 'core/struktur_organisasi.html', context)
+
+
+# ================= MODULE RTPM =================
+
+def check_overdue_rtpm():
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+    today = date.today().isoformat()
+    try:
+        resp = supabase.table("rtpm_jadwal") \
+            .select("id") \
+            .lt("tanggal", today) \
+            .eq("status", "Pending") \
+            .execute()
+        for item in resp.data:
+            supabase.table("rtpm_jadwal").update({"status": "Overdue"}).eq("id", item["id"]).execute()
+    except Exception as e:
+        logger.error(f"Gagal update overdue RTPM: {e}")
+
+
+def send_rtpm_telegram(action, equipment, activity, tanggal, pelaksana=None, catatan=None, evidence_url=None):
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8507107791:AAFd8BKfsMGZCzS7UctwNlWRiPipe45TkGE")
+    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003701349665")
+    tgl_str = tanggal.strftime('%d-%m-%Y') if isinstance(tanggal, date) else tanggal
+    if action == 'executed':
+        caption = (
+            f"✅ *RTPM TELAH DILAKSANAKAN*\n\n"
+            f"🛠️ Peralatan: *{equipment}*\n"
+            f"📋 Aktivitas: *{activity}*\n"
+            f"📅 Tanggal: {tgl_str}\n"
+            f"👤 Pelaksana: {pelaksana or '-'}\n"
+            f"📝 Catatan: {catatan or '-'}\n\n"
+            f"📸 _Bukti terlampir._"
+        )
+    else:
+        caption = (
+            f"⚠️ *PERINGATAN RTPM TERLEWAT*\n\n"
+            f"🛠️ Peralatan: *{equipment}*\n"
+            f"📋 Aktivitas: *{activity}*\n"
+            f"📅 Jadwal: {tgl_str}\n\n"
+            f"❗ Segera laksanakan RTPM dan input hasilnya."
+        )
+    if evidence_url and action == 'executed':
+        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        payload = {"chat_id": CHAT_ID, "photo": evidence_url, "caption": caption, "parse_mode": "Markdown"}
+    else:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": caption, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Telegram RTPM Error: {e}")
+
+
+@login_required(login_url='/login/')
+def rtpm_dashboard(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+    check_overdue_rtpm()
+
+    today = date.today()
+    bulan = int(request.GET.get('bulan', today.month))
+    tahun = int(request.GET.get('tahun', today.year))
+
+    start_date = date(tahun, bulan, 1)
+    if bulan == 12:
+        end_date = date(tahun+1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = date(tahun, bulan+1, 1) - timedelta(days=1)
+
+    try:
+        query = supabase.table("rtpm_jadwal").select("*") \
+            .gte("tanggal", start_date.isoformat()) \
+            .lte("tanggal", end_date.isoformat()) \
+            .order("tanggal", desc=False)
+        activity_filter = request.GET.get('activity', '')
+        if activity_filter:
+            query = query.eq("activity", activity_filter)
+        jadwal_list = query.execute().data
+    except Exception as e:
+        logger.error(f"Error ambil jadwal RTPM: {e}")
+        jadwal_list = []
+
+    total = len(jadwal_list)
+    done = sum(1 for j in jadwal_list if j['status'] == 'Done')
+    pending = sum(1 for j in jadwal_list if j['status'] == 'Pending')
+    overdue = sum(1 for j in jadwal_list if j['status'] == 'Overdue')
+
+    context = {
+        'jadwal_list': jadwal_list,
+        'bulan': bulan,
+        'tahun': tahun,
+        'activity_filter': activity_filter,
+        'total': total,
+        'done': done,
+        'pending': pending,
+        'overdue': overdue,
+        'bulan_options': [{'value': i, 'label': datetime(2000, i, 1).strftime('%B')} for i in range(1, 13)],
+        'tahun_options': range(today.year-1, today.year+2),
+    }
+    return render(request, 'core/rtpm_dashboard.html', context)
+
+
+@login_required(login_url='/login/')
+def rtpm_tambah_jadwal(request):
+    if request.method == "POST":
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        supabase = create_client(url, key)
+        equipment = request.POST.get('equipment')
+        activity = request.POST.get('activity')
+        area = request.POST.get('area', '')
+        tanggal = request.POST.get('tanggal')
+        minggu_ke = request.POST.get('minggu_ke')
+        keterangan = request.POST.get('keterangan', '')
+        try:
+            supabase.table("rtpm_jadwal").insert({
+                "equipment": equipment,
+                "activity": activity,
+                "area": area,
+                "tanggal": tanggal,
+                "minggu_ke": int(minggu_ke) if minggu_ke else None,
+                "keterangan": keterangan,
+                "status": "Pending"
+            }).execute()
+            messages.success(request, "Jadwal RTPM berhasil ditambahkan.")
+        except Exception as e:
+            logger.error(f"Gagal tambah jadwal RTPM: {e}")
+            messages.error(request, "Gagal menambah jadwal.")
+        return redirect('rtpm_dashboard')
+    return redirect('rtpm_dashboard')
+
+
+@login_required(login_url='/login/')
+def rtpm_hapus_jadwal(request, id):
+    if request.method == "POST":
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        supabase = create_client(url, key)
+        try:
+            supabase.table("rtpm_jadwal").delete().eq("id", id).execute()
+            messages.success(request, "Jadwal dihapus.")
+        except Exception as e:
+            logger.error(f"Gagal hapus jadwal: {e}")
+            messages.error(request, "Gagal menghapus.")
+    return redirect('rtpm_dashboard')
+
+
+@login_required(login_url='/login/')
+def rtpm_input_pelaksanaan(request, jadwal_id):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+    if request.method == "POST":
+        tanggal_pelaksanaan = request.POST.get('tanggal_pelaksanaan')
+        pelaksana = request.POST.get('pelaksana')
+        catatan = request.POST.get('catatan', '')
+        evidence_file = request.FILES.get('evidence')
+
+        evidence_url = ""
+        if evidence_file:
+            try:
+                file_name = f"rtpm/{uuid.uuid4()}.jpeg"
+                supabase.storage.from_("evidences").upload(
+                    path=file_name, file=evidence_file.read(),
+                    file_options={"content-type": evidence_file.content_type}
+                )
+                evidence_url = supabase.storage.from_("evidences").get_public_url(file_name)
+            except Exception as e:
+                logger.error(f"Upload evidence RTPM gagal: {e}")
+                messages.error(request, "Gagal upload foto.")
+                return redirect('rtpm_dashboard')
+
+        try:
+            jadwal_resp = supabase.table("rtpm_jadwal").select("*").eq("id", jadwal_id).single().execute()
+            jadwal = jadwal_resp.data
+            supabase.table("rtpm_pelaksanaan").insert({
+                "jadwal_id": jadwal_id,
+                "tanggal_pelaksanaan": tanggal_pelaksanaan,
+                "pelaksana": pelaksana,
+                "catatan": catatan,
+                "evidence_url": evidence_url
+            }).execute()
+            supabase.table("rtpm_jadwal").update({"status": "Done"}).eq("id", jadwal_id).execute()
+            if jadwal:
+                tgl = datetime.strptime(tanggal_pelaksanaan, '%Y-%m-%d').date()
+                send_rtpm_telegram('executed', jadwal['equipment'], jadwal['activity'],
+                                   tgl, pelaksana, catatan, evidence_url)
+            messages.success(request, "Hasil RTPM berhasil disimpan.")
+        except Exception as e:
+            logger.error(f"Gagal simpan pelaksanaan RTPM: {e}")
+            messages.error(request, "Gagal menyimpan data.")
+        return redirect('rtpm_dashboard')
+    return redirect('rtpm_dashboard')
+
+
+@login_required(login_url='/login/')
+def rtpm_export_excel(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    bulan = int(request.GET.get('bulan', date.today().month))
+    tahun = int(request.GET.get('tahun', date.today().year))
+
+    start_date = date(tahun, bulan, 1)
+    if bulan == 12:
+        end_date = date(tahun+1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = date(tahun, bulan+1, 1) - timedelta(days=1)
+
+    try:
+        data = supabase.table("rtpm_jadwal")\
+            .select("*, rtpm_pelaksanaan(*)")\
+            .gte("tanggal", start_date.isoformat())\
+            .lte("tanggal", end_date.isoformat())\
+            .order("tanggal").execute().data
+    except Exception as e:
+        logger.error(f"Export Excel RTPM gagal: {e}")
+        return HttpResponse("Gagal mengambil data.")
+
+    rows = []
+    for j in data:
+        pelaksanaan = j.get('rtpm_pelaksanaan', [])
+        p = pelaksanaan[0] if pelaksanaan else {}
+        rows.append({
+            'Peralatan': j.get('equipment'),
+            'Aktivitas': j.get('activity'),
+            'Area': j.get('area'),
+            'Jadwal': j.get('tanggal'),
+            'Status': j.get('status'),
+            'Pelaksana': p.get('pelaksana', '-'),
+            'Tanggal Selesai': p.get('tanggal_pelaksanaan', '-'),
+            'Catatan': p.get('catatan', '-'),
+        })
+
+    df = pd.DataFrame(rows)
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="RTPM_{tahun}_{bulan}.xlsx"'
+    with pd.ExcelWriter(response, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='RTPM', startrow=2)
+        workbook = writer.book
+        worksheet = writer.sheets['RTPM']
+        logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo_pln1.png')
+        if os.path.exists(logo_path):
+            worksheet.insert_image('A1', logo_path, {'x_scale': 0.4, 'y_scale': 0.4})
+        border_format = workbook.add_format({'border': 1})
+        worksheet.conditional_format(2, 0, len(df)+1, len(df.columns)-1,
+                                     {'type': 'no_blanks', 'format': border_format})
+        worksheet.conditional_format(2, 0, len(df)+1, len(df.columns)-1,
+                                     {'type': 'blanks', 'format': border_format})
+    return response
+
+
+@login_required(login_url='/login/')
+def rtpm_export_pdf(request):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    supabase = create_client(url, key)
+
+    bulan = int(request.GET.get('bulan', date.today().month))
+    tahun = int(request.GET.get('tahun', date.today().year))
+    bulan_nama = datetime(2000, bulan, 1).strftime('%B').upper()
+
+    start_date = date(tahun, bulan, 1)
+    if bulan == 12:
+        end_date = date(tahun+1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = date(tahun, bulan+1, 1) - timedelta(days=1)
+
+    try:
+        data = supabase.table("rtpm_jadwal")\
+            .select("*, rtpm_pelaksanaan(*)")\
+            .gte("tanggal", start_date.isoformat())\
+            .lte("tanggal", end_date.isoformat())\
+            .order("tanggal").execute().data
+    except Exception as e:
+        logger.error(f"Export PDF RTPM gagal: {e}")
+        return HttpResponse("Gagal mengambil data.")
+
+    if not data:
+        return HttpResponse("Tidak ada data.")
+
+    pdf_bytes = create_rtpm_pdf_report(data, bulan_nama, tahun)
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="Laporan_RTPM_{bulan_nama}_{tahun}.pdf"'
+    return response
